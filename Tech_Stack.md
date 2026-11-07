@@ -85,9 +85,10 @@ The browser only talks to the web app: Next.js rewrites `/api/v1/*` to the API c
 
 Two supported routes, both running the same containers and `make` commands:
 
-- **A. Git Bash + GNU make** (`winget install ezwinports.make`), with Docker Desktop on either
-  engine, WSL 2 or Hyper-V.
-- **B. WSL 2 Ubuntu**, which behaves as plain Linux.
+- **A. Git Bash + GNU make** (`winget install --scope user ezwinports.make`), with Docker Desktop on
+  either engine, WSL 2 or Hyper-V. **No administrator rights** except to install Docker Desktop
+  once (and add the user to `docker-users`); Git and make install per user.
+- **B. WSL 2 Ubuntu**, which behaves as plain Linux (installing WSL needs admin rights).
 
 To keep both working, the Makefile:
 - exports `MSYS_NO_PATHCONV=1` under Git Bash;
@@ -98,8 +99,9 @@ To keep both working, the Makefile:
 - uses POSIX shell only (Ubuntu's `/bin/sh` is dash);
 - never puts backslash escapes in `$(shell …)` (GNU make for Windows drops them there):
   colours are literal ESC bytes, and everything it prints is plain ASCII;
-- builds with `COMPOSE_BAKE=false` on Windows (Compose's Bake builder refuses the Dockerfiles
-  there with "additional privileges requested: --allow=fs.read=…");
+- sets `BUILDX_BAKE_ENTITLEMENTS_FS=0` on Windows: Compose builds through buildx Bake, whose
+  file-access check misreads Windows paths ("additional privileges requested:
+  --allow=fs.read=…"). It is a build permission, not admin rights;
 - refuses to run outside Git Bash with a plain-ASCII message (checked before any `$(shell …)`,
   since cmd has no `printf`). `make.bat` is a launcher that starts `make` in Git Bash, so
   `make <target>` also works from cmd (`.\make` from PowerShell).

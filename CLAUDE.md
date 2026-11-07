@@ -53,10 +53,14 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   - POSIX shell only: no `read -n`, no bash-isms. **No backslash escapes inside `$(shell …)`**
     (GNU make for Windows drops them there: `printf '\033'` prints `033`): colours are literal
     ESC bytes in the Makefile, `\#` for `#`, `tr -d '[:cntrl:]'` for CRs. Everything make prints is
-    plain ASCII (Windows consoles garble the rest). On Windows, `COMPOSE_BAKE=false`.
+    plain ASCII (Windows consoles garble the rest). On Windows, `BUILDX_BAKE_ENTITLEMENTS_FS=0`
+    (Compose no longer honours `COMPOSE_BAKE=false`).
   - Quote every host path (Windows paths have spaces), and pass host paths to docker as
     `$(ROOT)` / `*_DIR_ABS`, never `$(CURDIR)`/`$(pwd)`. On Windows they're `C:/…` (`host_path`).
   - Keep `MSYS_NO_PATHCONV`, `.gitattributes` (LF, byte-exact fixtures) and polling watchers.
+  - **No admin rights on Windows** beyond the one-time Docker Desktop install: per-user Git and
+    make (`winget … --scope user`), the project under the user folder. Never add a step that needs
+    an elevated prompt.
   - Never add a PowerShell twin of the Makefile. `make.bat` (CRLF) only relaunches `make` in Git
     Bash; keep all logic in the Makefile. The Windows guard must stay before any `$(shell …)`
     and its message plain ASCII.

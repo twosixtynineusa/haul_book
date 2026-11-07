@@ -27,10 +27,11 @@ endif
 HASH := \#
 
 ifeq ($(OS),Windows_NT)
-  # Docker Compose's default "Bake" builder refuses this project's Dockerfiles on Windows
-  # ("additional privileges requested: --allow=fs.read=apps\web\Dockerfile"). Build the
-  # classic way there.
-  export COMPOSE_BAKE := false
+  # Docker Compose builds through buildx Bake, whose file-access check misreads Windows paths:
+  # it asks for "--allow=fs.read=apps\web\Dockerfile" although the Dockerfile is inside the
+  # project. This is a Docker build permission, not Windows admin rights. buildx's own
+  # switch turns the check off (Compose has no classic builder to fall back to any more).
+  export BUILDX_BAKE_ENTITLEMENTS_FS := 0
   # Git Bash rewrites arguments that look like paths (/workspace → C:/Program Files/Git/workspace)
   # before docker sees them. Turn that off for every recipe.
   export MSYS_NO_PATHCONV := 1

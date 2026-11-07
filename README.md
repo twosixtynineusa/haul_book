@@ -97,36 +97,46 @@ There are two ways to run it on Windows. Both use the same containers and the sa
 commands.
 
 - **A. Git Bash.** This works whether or not your PC has WSL 2, including Docker Desktop on its
-  Hyper-V engine.
-- **B. WSL 2 (Ubuntu).** This option needs WSL 2. Code reloads faster, so it is the better
-  choice if you will change the code.
+  Hyper-V engine. Apart from installing Docker Desktop once, it needs no administrator rights.
+- **B. WSL 2 (Ubuntu).** This option needs WSL 2, and installing WSL needs administrator rights.
+  Code reloads faster, so it is the better choice if you will change the code.
 
 #### A. Git Bash (with or without WSL 2)
 
-1. **Install Docker Desktop.** Download it from
-   [docs.docker.com/desktop/setup/install/windows-install](https://docs.docker.com/desktop/setup/install/windows-install/),
-   or in PowerShell:
+> **No administrator rights needed, except once for Docker Desktop.** Git, make and Haul Book all
+> install into your own user account. Only Docker Desktop has to be installed by an administrator,
+> because Windows requires it for the virtualization Docker uses. If `docker --version` already
+> works in a terminal, that's done and you can skip step 1.
 
-   ```powershell
-   winget install -e --id Docker.DockerDesktop
-   ```
+1. **Docker Desktop (administrator, once).** Whoever manages the PC installs Docker Desktop from
+   [docs.docker.com/desktop/setup/install/windows-install](https://docs.docker.com/desktop/setup/install/windows-install/)
+   (or `winget install -e --id Docker.DockerDesktop` in an administrator PowerShell). Then they
+   add your Windows account to the **docker-users** group (Computer Management → Local Users and
+   Groups → Groups → docker-users). Sign out and back in, start Docker Desktop and accept its
+   terms. From then on you use Docker without admin rights.
 
-   Start it once and accept its terms. Docker Desktop uses one of two engines, under
-   **Settings → General → Use the WSL 2 based engine**:
+   Docker Desktop uses one of two engines, under **Settings → General → Use the WSL 2 based
+   engine**:
    - **On** (default): needs WSL 2. Docker Desktop installs it if your PC supports it.
    - **Off**: the Hyper-V engine, without WSL 2. This needs Windows 10/11 **Pro, Enterprise or
      Education** with virtualization enabled; Windows Home always needs WSL 2. In this mode, check
      **Settings → Resources → File sharing**. The project folder and your input/output folders
      must be under a listed path; `C:\Users` is shared by default.
-2. **Install Git for Windows**, which includes **Git Bash**, and **GNU make**. In PowerShell:
+2. **Install Git for Windows and GNU make for your account only.** In a normal (not
+   administrator) PowerShell:
 
    ```powershell
-   winget install -e --id Git.Git
-   winget install -e --id ezwinports.make
+   winget install -e --id Git.Git --scope user
+   winget install -e --id ezwinports.make --scope user
    ```
 
-   Without winget, use the installer from [git-scm.com](https://git-scm.com/download/win). For
-   make, use [Chocolatey](https://chocolatey.org/install) instead: `choco install make`.
+   Neither asks for admin rights. Without winget:
+   - **Git:** run the installer from [git-scm.com](https://git-scm.com/download/win). If it asks
+     for administrator rights, cancel that prompt and choose to install for your user only.
+   - **make:** download `make-4.4.1-without-guile-w32-bin.zip` from
+     [ezwinports on SourceForge](https://sourceforge.net/projects/ezwinports/files/) and unzip it
+     to `%LOCALAPPDATA%\Programs\make`. Then add its `bin` folder to your **user** `Path`: Start →
+     "Edit environment variables for your account". That needs no admin either.
 3. **Open Git Bash** from the Start menu. If it was already open, close it and open a new one so
    it finds `make`. Check that all three tools answer:
 
@@ -134,8 +144,8 @@ commands.
    docker --version && docker compose version && make --version
    ```
 
-4. **Get the project and start it.** In Git Bash, `~` is your Windows user folder
-   (`C:\Users\<you>`):
+4. **Get the project and start it.** Keep it in your user folder: creating folders directly on
+   `C:\` can need admin rights. In Git Bash, `~` is your Windows user folder (`C:\Users\<you>`):
 
    ```bash
    cd ~
@@ -156,8 +166,8 @@ quoted values, such as `make sql Q="…"`, use Git Bash directly.
 #### B. WSL 2 (Ubuntu)
 
 1. Install Docker Desktop as in A.1, with **Use the WSL 2 based engine** turned on.
-2. Install Ubuntu. In PowerShell, run the command below, restart if asked, then open **Ubuntu**
-   from the Start menu and create a user name and password:
+2. Install Ubuntu (this step needs administrator rights). In PowerShell, run the command below,
+   restart if asked, then open **Ubuntu** from the Start menu and create a user name and password:
 
    ```powershell
    wsl --install -d Ubuntu
@@ -313,8 +323,10 @@ You can also approve or remove sources on the Companies tab.
   Bash. If `make.bat` says Git Bash or GNU make wasn't found, install them (Setup, steps A.2 and
   A.3) and open a new window.
 - **Windows: `make setup` stops with "additional privileges requested: pass --allow=fs.read=…"**
-  (or the help shows `033[0;34m`): your copy predates the fix. Run `git pull`, then `make setup`
-  again; it's safe to re-run.
+  (or the help shows `033[0;34m`): this is a Docker build permission, not Windows admin rights,
+  and your copy predates the fix. Run `git pull`, then `make setup` again; it's safe to re-run. If
+  you run `docker compose build` yourself instead of `make`, set `BUILDX_BAKE_ENTITLEMENTS_FS=0`
+  first.
 - **Windows: `make: command not found` in Git Bash:** close Git Bash and open a new window after
   installing make. If it's still missing, run `winget install -e --id ezwinports.make` again.
 - **Windows: `docker` not found, or "cannot connect to the Docker daemon":** start Docker

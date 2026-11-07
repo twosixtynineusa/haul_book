@@ -2,6 +2,27 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Windows: the real Bake fix, no admin rights needed
+- **`make setup` still stopped** with "additional privileges requested: pass
+  --allow=fs.read=apps\\web\\Dockerfile". `COMPOSE_BAKE=false` (previous entry) had no effect: current
+  Docker Compose always builds through buildx Bake and no longer reads that setting.
+  - The Makefile now sets buildx's own switch on Windows, `BUILDX_BAKE_ENTITLEMENTS_FS=0`. buildx's
+    error text names that switch for exactly this check.
+  - The message is about a Docker *build* permission (Bake misreads the Windows Dockerfile path as
+    outside the project), **not Windows administrator rights**.
+  - Builds with the switch set were checked here; the Windows run itself is still to be
+    confirmed.
+- **No administrator rights, except Docker Desktop's one-time install.**
+  - README Windows route A says so up front: an administrator installs Docker Desktop and adds
+    the user to `docker-users`; the user does everything else.
+  - Git and make install with `winget … --scope user`.
+  - Without winget there's a manual path that needs no admin either: Git for one user, and the
+    make zip in `%LOCALAPPDATA%` added to the user `Path`. It replaces the Chocolatey hint, which
+    needs admin.
+  - The project goes under the user folder, since folders directly on `C:\` can need admin.
+  - Installing WSL (route B) is marked as needing admin.
+  - CLAUDE.md: never add a Windows step that needs an elevated prompt.
+
 ## 2026-11-07 — Windows: make setup builds, clean output
 Found on the first real Windows run (cmd → `make.bat` → Git Bash → GNU make for Windows):
 - **`make setup` failed while building the images:** Docker Compose's default "Bake" builder
