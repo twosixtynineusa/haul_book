@@ -36,6 +36,9 @@
 - [ ] Convert a **BELLAMSP-ANIR** and a **HOS247** report and import each
   into FuelTaxOnline under that customer. Confirm the whole-mile state legs import with
   "Failures: 0" (the export has decimals; Haul Book rounds them).
+- [ ] Convert an **EZLogz** Mileage Report, pick the company it belongs to, and import it into
+  FuelTaxOnline under that customer. Confirm "Failures: 0" and that the trip dates (first to last
+  day driven that month) are accepted.
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles
   imports one trip per month. Then drop two trucks' reports together and confirm both import.
 - [ ] **Windows:** on a Windows PC, follow README → Setup → Windows. Test both routes, neither of

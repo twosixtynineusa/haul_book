@@ -1,0 +1,50 @@
+State,Miles
+Illinois,365.6 mi
+Iowa,310.5 mi
+Kansas,275.8 mi
+Missouri,312 mi
+Nebraska,461 mi
+Oklahoma,435.4 mi
+Texas,433.2 mi
+Total distance:,2593.5 mi
+Driver,State,Miles
+John Doe,,1767.1 mi
+John Doe,Texas,433.2 mi
+John Doe,Oklahoma,435.4 mi
+John Doe,Kansas,275.8 mi
+John Doe,Nebraska,310.7 mi
+John Doe,Missouri,312.0 mi
+Jane Roe,,826.4 mi
+Jane Roe,Nebraska,150.3 mi
+Jane Roe,Iowa,310.5 mi
+Jane Roe,Illinois,365.6 mi
+Units,State,Miles
+52,,2593.5 mi
+52,Texas,433.2 mi
+52,Oklahoma,435.4 mi
+52,Kansas,275.8 mi
+52,Nebraska,461.0 mi
+52,Iowa,310.5 mi
+52,Illinois,365.6 mi
+52,Missouri,312.0 mi
+Date,State,Driver,Unit,Miles
+2026-10-03,,,,531.1 mi
+2026-10-03,Texas,John Doe,Texas,120.4 mi
+2026-10-03,Oklahoma,John Doe,Oklahoma,230.1 mi
+2026-10-03,Kansas,John Doe,Kansas,180.6 mi
+2026-10-04,,,,405.9 mi
+2026-10-04,Kansas,John Doe,Kansas,95.2 mi
+2026-10-04,Nebraska,John Doe,Nebraska,310.7 mi
+2026-10-06,,,,438.8 mi
+2026-10-06,Nebraska,Jane Roe,Nebraska,150.3 mi
+2026-10-06,Iowa,Jane Roe,Iowa,288.5 mi
+2026-10-07,,,,323.5 mi
+2026-10-07,Iowa,Jane Roe,Iowa,22.0 mi
+2026-10-07,Illinois,Jane Roe,Illinois,301.5 mi
+2026-10-08,,,,334.5 mi
+2026-10-08,Illinois,Jane Roe,Illinois,64.1 mi
+2026-10-08,Missouri,John Doe,Missouri,270.4 mi
+2026-10-09,,,,559.7 mi
+2026-10-09,Missouri,John Doe,Missouri,41.6 mi
+2026-10-09,Oklahoma,John Doe,Oklahoma,205.3 mi
+2026-10-09,Texas,John Doe,Texas,312.8 mi

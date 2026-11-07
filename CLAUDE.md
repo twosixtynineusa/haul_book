@@ -3,8 +3,8 @@
 Instructions for AI agents working in this repo. Read before editing.
 
 ## What this is
-A local, single-user portal: ELD/telematics mileage reports (Wialon, BELLAMSP-ANIR and HOS247 built;
-EZLogz, Motive, Swift and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
+A local, single-user portal: ELD/telematics mileage reports (Wialon, BELLAMSP-ANIR, HOS247 and EZLogz
+built; Motive, Swift and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
 unit #, saved to a host folder (`OUTPUT_DIR` in `.env`) and downloadable. Reports dropped in the
 watched input folder (`INPUT_DIR`) convert automatically via a BullMQ worker. The saved company →
 unit list and the input-folder inbox live in Postgres 18 (Prisma). A Companies tab manages the
@@ -15,7 +15,8 @@ and dev rules: [Tech_Stack.md](Tech_Stack.md). File formats: [docs/data-contract
 packages/shared/   @haulbook/shared — Zod HTTP contracts + constants (build first; apps use dist/)
 apps/api/          NestJS:
   src/conversion/importers/   one Importer per source format (detect + read) — wialon.ts,
-                              ifta-mileage-by-state.ts (BELLAMSP-ANIR + HOS247), placeholders.ts
+                              ifta-mileage-by-state.ts (BELLAMSP-ANIR + HOS247), ezlogz.ts,
+                              placeholders.ts
   src/conversion/promiles.ts  ProMiles writer (pure): trucks → one CSV per company
   src/conversion/conversion.service.ts  detect → read → company/unit → preview / save + name files
   src/companies/              companies + trucks (Prisma): list, edit, merge, approved sources (/api/v1/companies)

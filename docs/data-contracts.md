@@ -18,7 +18,8 @@
 | 1 | Wialon "IFTA Single Unit Mileage Report" export (CSV) | read in | `apps/api/src/conversion/importers/wialon.ts` |
 | 2 | ProMiles FuelTaxOnline TRIPSUMMARY2 import (CSV), one file per company | write out | `conversion/promiles.ts`; named + saved by `conversion.service.ts` |
 | 3 | "IFTA Mileage By State" export (CSV): BELLAMSP-ANIR and HOS247 (same layout) | read in | `importers/ifta-mileage-by-state.ts` |
-| 4 | EZLogz · Motive · Swift · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
+| 4 | EZLogz "Mileage Report" export (CSV) | read in | `importers/ezlogz.ts` |
+| 5 | Motive · Swift · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
 
 **Format detection:** each uploaded file is offered to every built importer's `detect()` (cheap
 header sniffing on the raw bytes). The first match wins; no match means the portal asks the user
@@ -176,13 +177,71 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ---
 
-## 4. EZLogz · Motive · Swift · Vista ELD — not yet specified  *(read in)*
+## 4. EZLogz "Mileage Report" export — v1  *(read in)*
+
+- **Status (2026-11-07):** four real EZLogz samples (one unit each, October 2026, one of them a
+  team truck with two drivers) convert without warnings; their daily rows add up exactly to the
+  unit's state totals. Importing a converted file into FuelTaxOnline is still to be confirmed
+  (MANUAL_TODO §C).
+- **Source:** **EZLogz** (`ezlogz`).
+- **File:** `Mileage_Report.csv` (the browser adds ` (1)`, ` (2)`, … to repeat downloads; the name
+  carries nothing). Comma-separated, ASCII/UTF-8, LF line endings with a final newline, no BOM
+  (CRLF is accepted). **No company and no period line** in the file.
+- **Layout** (fixture: `apps/api/test/fixtures/Mileage_Report.csv`, made up): four sections, one
+  after the other, each opened by its own header row. Full state names; miles carry a ` mi`
+  suffix (`305 mi` in the first section, `305.0 mi` in the others).
+
+  ```
+  State,Miles                       ← per state, alphabetical
+  Illinois,365.6 mi
+  …
+  Total distance:,2593.5 mi
+  Driver,State,Miles                ← per driver: a total row (empty State), then its states
+  John Doe,,1767.1 mi
+  John Doe,Texas,433.2 mi
+  …
+  Units,State,Miles                 ← per unit: a total row (empty State), then its states
+  52,,2593.5 mi
+  52,Texas,433.2 mi
+  …
+  Date,State,Driver,Unit,Miles      ← per day: a total row (only Date + Miles), then its states
+  2026-10-03,,,,531.1 mi
+  2026-10-03,Texas,John Doe,Texas,120.4 mi
+  …
+  ```
+
+  - In the daily rows **the `Unit` column repeats the state name**, not the unit #. That's how
+    EZLogz writes it; the column is ignored.
+  - A team truck lists each driver's rows for the same day one after the other, so the order
+    within a day is by driver, not by route.
+- **Detection:** the first line is `State,Miles` and a `Total distance:,` line follows within the
+  first 4 KB (the "IFTA Mileage By State" export of §3 starts with its title line instead).
+- **Company:** never in the file: the user's entry, the input subfolder, or the single saved
+  company with that unit # (as for Wialon). **Unit #:** the Units section's total row.
+- **Trips:** from the daily rows, **one trip per month**. Begin/End Date are the month's first and
+  last day driven (as with Wialon), since the file has no period line. A multi-month export
+  splits into months by itself.
+- **Legs:** one per state per month, ordered by first entry (first day in that state, file order
+  within a day). Each leg's miles are that month's daily rows for the state, summed, then
+  **rounded to whole miles, half up** (as in §3). The exact sum of the month's daily total rows is
+  kept as the report's total for the review's cross-check.
+- **Cross-check:** the unit's state totals (Units section) must match the daily rows summed per
+  state, else a warning names the states. ProMiles gets the daily rows. The State and Driver
+  sections are not read.
+- **Can't convert:** no Units section, **more than one unit** (the daily rows don't say which unit
+  drove them: export one unit per report), no daily rows, an unknown state, an unreadable date or
+  mileage, miles and kilometres mixed.
+- **Output:** contract 2, unchanged: e.g. `ACME-TRUCKING-LLC_unit-52_2026-10.csv`
+  (`apps/api/test/fixtures/promiles_expected_ezlogz_unit52_oct2026.csv`, hand-derived).
+
+---
+
+## 5. Motive · Swift · Vista ELD — not yet specified  *(read in)*
 
 - **Status:** placeholders. The portal lists them in the "Source format" picker (marked coming
   soon). They never auto-detect, and choosing one says the importer isn't built yet.
 - **Samples:** real exports for each are kept locally (git-ignored, never committed). Seen so
   far:
-  - **EZLogz:** CSV, `State,Miles` with full state names and `"788.4 mi"`;
   - **Motive:** CSVs `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`)
     and `trip_reports_detail_by_vehicle`;
   - **Swift** and **Vista ELD:** `IFTA_Report*.xls`, legacy Excel (needs an Excel reader).

@@ -2,6 +2,25 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — EZLogz importer
+- **EZLogz is a built source**: the "Mileage Report" CSV (`importers/ezlogz.ts`,
+  docs/data-contracts.md §4, now v1). The source list calls it "EZLogz — Mileage Report"; Motive,
+  Swift and Vista ELD stay placeholders (§5).
+  - Detected by its `State,Miles` first line plus a `Total distance:` line.
+  - The unit # comes from the Units section. The file has no company, so it comes from the user,
+    the input subfolder or the single saved company with that unit #, as for Wialon.
+  - The daily rows make **one trip per month**, from the first to the last day driven, with one
+    leg per state in order of first entry. Miles are rounded to whole miles (half up), and the
+    month's exact daily totals are kept as the report's total.
+  - A warning when the unit's state totals and the daily rows disagree.
+  - Refused: a file with several units (its daily rows don't say which unit drove them; EZLogz
+    writes the state in their Unit column), no daily rows, unknown states, bad dates or miles.
+  - The four real EZLogz samples (kept locally, not in the repo) are detected as EZLogz only and
+    convert without warnings.
+- **Tests:** a made-up fixture in the exact format (`Mileage_Report.csv`, a team truck with two
+  drivers) with a hand-derived golden ProMiles file, plus a spec for detection, month split,
+  CRLF, rounding, the cross-check warning and seven refusal cases.
+
 ## 2026-11-07 — Windows: the real Bake fix, no admin rights needed
 - **`make setup` still stopped** with "additional privileges requested: pass
   --allow=fs.read=apps\\web\\Dockerfile". `COMPOSE_BAKE=false` (previous entry) had no effect: current

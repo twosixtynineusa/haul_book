@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const SOURCE_FORMATS = [
   { id: 'wialon', label: 'Wialon — IFTA Single Unit Mileage Report', available: true },
   { id: 'bellamsp-anir', label: 'BELLAMSP-ANIR — IFTA Mileage By State', available: true },
-  { id: 'ezlogz', label: 'EZLogz', available: false },
+  { id: 'ezlogz', label: 'EZLogz — Mileage Report', available: true },
   { id: 'hos247', label: 'HOS247 — IFTA Mileage By State', available: true },
   { id: 'motive', label: 'Motive', available: false },
   { id: 'swift', label: 'Swift', available: false },
