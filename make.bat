@@ -9,13 +9,8 @@ if not exist "%GITBASH%" (
   echo Git Bash was not found. Install Git for Windows: winget install -e --id Git.Git
   exit /b 1
 )
-rem make prints UTF-8 (arrows, dashes): show it as UTF-8, then put the code page back.
-for /f "tokens=2 delims=:." %%c in ('chcp') do set "OLDCP=%%c"
-chcp 65001 >nul
 rem Run in this folder (a login shell would otherwise start in your home folder).
 set "CHERE_INVOKING=1"
 cd /d "%~dp0"
 "%GITBASH%" -lc "command -v make >/dev/null || { echo 'GNU make was not found. Install it: winget install -e --id ezwinports.make, then open a new window.'; exit 1; }; make %*"
-set "RC=%ERRORLEVEL%"
-if defined OLDCP chcp %OLDCP% >nul
-exit /b %RC%
+exit /b %ERRORLEVEL%

@@ -96,6 +96,10 @@ To keep both working, the Makefile:
 - strips CRLF and quotes from `.env` values;
 - resolves folder paths in the shell so paths with spaces work;
 - uses POSIX shell only (Ubuntu's `/bin/sh` is dash);
+- never puts backslash escapes in `$(shell …)` (GNU make for Windows drops them there):
+  colours are literal ESC bytes, and everything it prints is plain ASCII;
+- builds with `COMPOSE_BAKE=false` on Windows (Compose's Bake builder refuses the Dockerfiles
+  there with "additional privileges requested: --allow=fs.read=…");
 - refuses to run outside Git Bash with a plain-ASCII message (checked before any `$(shell …)`,
   since cmd has no `printf`). `make.bat` is a launcher that starts `make` in Git Bash, so
   `make <target>` also works from cmd (`.\make` from PowerShell).

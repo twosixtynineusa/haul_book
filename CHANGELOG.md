@@ -2,6 +2,24 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Windows: make setup builds, clean output
+Found on the first real Windows run (cmd → `make.bat` → Git Bash → GNU make for Windows):
+- **`make setup` failed while building the images:** Docker Compose's default "Bake" builder
+  stopped with "additional privileges requested: pass --allow=fs.read=apps\\web\\Dockerfile". The
+  Makefile now sets `COMPOSE_BAKE=false` on Windows, so Compose uses its classic builder.
+  Linux, macOS and WSL keep Bake.
+- **The help showed `033[0;34m` instead of colours:** GNU make for Windows drops the backslash
+  inside `$(shell …)`, so `printf '\033…'` printed `033…`. That same bug silently broke the hidden
+  `\r` and `\043` helpers.
+  - Colours are now literal ESC bytes in the Makefile.
+  - `#` comes from make's own `\#`.
+  - CRs in `.env` are stripped with `tr -d '[:cntrl:]'`.
+  - No `$(shell …)` contains a backslash any more.
+- **`â€”` / `â†’` in the output:** everything make prints is now plain ASCII (`-`, `->`, `OK`,
+  `WARNING:`). The `make ci` summary no longer depends on `\n` escapes, and `make.bat` no longer
+  switches the console's code page.
+- Not yet re-run on Windows; the fix was checked by simulating Windows paths and `.env` CRLFs.
+
 ## 2026-11-07 — BELLAMSP-ANIR and HOS247 importers, every sample provider listed, make from cmd
 - **Source list = the providers with sample exports.** Wialon, **BELLAMSP-ANIR** and **HOS247** are
   built; **EZLogz, Motive, Swift, Vista ELD** are placeholders (listed as coming soon). The `ez-logs`

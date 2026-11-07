@@ -50,7 +50,10 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   decision (2026-11-07): the app only ever runs locally, and it is open source. Don't add them back.
 - **Windows: Git Bash (native GNU make, with or without WSL 2) or WSL 2 Ubuntu.** The Makefile
   must work in all three of Linux/macOS sh, Ubuntu's dash and Git Bash. That means:
-  - POSIX shell only: no `read -n`, no bash-isms. Colours are real ESC bytes from `printf`.
+  - POSIX shell only: no `read -n`, no bash-isms. **No backslash escapes inside `$(shell …)`**
+    (GNU make for Windows drops them there: `printf '\033'` prints `033`): colours are literal
+    ESC bytes in the Makefile, `\#` for `#`, `tr -d '[:cntrl:]'` for CRs. Everything make prints is
+    plain ASCII (Windows consoles garble the rest). On Windows, `COMPOSE_BAKE=false`.
   - Quote every host path (Windows paths have spaces), and pass host paths to docker as
     `$(ROOT)` / `*_DIR_ABS`, never `$(CURDIR)`/`$(pwd)`. On Windows they're `C:/…` (`host_path`).
   - Keep `MSYS_NO_PATHCONV`, `.gitattributes` (LF, byte-exact fixtures) and polling watchers.

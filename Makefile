@@ -21,10 +21,16 @@ ifeq ($(OS),Windows_NT)
   endif
 endif
 
-CR := $(shell printf '\r')
-HASH := $(shell printf '\043')
+# No backslash escapes inside $(shell ...) anywhere in this file: GNU make for Windows
+# drops the backslash, so printf '\033' prints "033". Hence the escaped \# below, colours
+# as literal ESC bytes, and tr [:cntrl:] for stray CRs.
+HASH := \#
 
 ifeq ($(OS),Windows_NT)
+  # Docker Compose's default "Bake" builder refuses this project's Dockerfiles on Windows
+  # ("additional privileges requested: --allow=fs.read=apps\web\Dockerfile"). Build the
+  # classic way there.
+  export COMPOSE_BAKE := false
   # Git Bash rewrites arguments that look like paths (/workspace → C:/Program Files/Git/workspace)
   # before docker sees them. Turn that off for every recipe.
   export MSYS_NO_PATHCONV := 1
@@ -45,12 +51,13 @@ export HOST_UID HOST_GID
 # The project folder as docker should see it.
 ROOT := $(call host_path,$(CURDIR))
 
-# Real escape characters, not "\033": Git Bash's echo prints backslash codes literally.
-BLUE := $(shell printf '\033[0;34m')
-GREEN := $(shell printf '\033[0;32m')
-YELLOW := $(shell printf '\033[0;33m')
-RED := $(shell printf '\033[0;31m')
-NC := $(shell printf '\033[0m')
+# Colours: each value starts with a literal ESC byte (0x1B), which every shell's echo prints
+# as-is (no printf, no backslash escapes).
+BLUE := [0;34m
+GREEN := [0;32m
+YELLOW := [0;33m
+RED := [0;31m
+NC := [0m
 
 # The output folder comes from .env (OUTPUT_DIR). Compose gets it as an absolute
 # path, plus your uid/gid so the api hands converted files to you, not root.
@@ -61,9 +68,11 @@ WEB_PORT ?= 3100
 API_PORT ?= 3000
 DB_PORT ?= 5433
 # A .env saved by a Windows editor may have CRLF line endings, and paths with spaces
-# may be quoted; compose copes with both, make doesn't. Drop the \r and the quotes.
+# may be quoted; compose copes with both, make doesn't. Drop control characters (the
+# CR) and the quotes.
+no_ctrl = $(shell printf %s '$(1)' | tr -d '[:cntrl:]')
 $(foreach v,OUTPUT_DIR INPUT_DIR INPUT_SCAN_SECONDS WEB_PORT API_PORT DB_PORT,\
-	$(eval $(v) := $(subst ",,$(subst $(CR),,$($(v))))))
+	$(eval $(v) := $(subst ",,$(call no_ctrl,$($(v))))))
 # Absolute path of a folder from .env (relative = this project folder). Done in the
 # shell, not with $(abspath), so paths with spaces (C:\Users\Jane Doe\…) survive.
 abs_dir = $(shell p='$(call host_path,$(1))'; case "$$p" in ($(ABS_PATH_GLOB)) ;; (*) p="$(ROOT)/$${p$(HASH)./}" ;; esac; printf '%s' "$${p%/}")
@@ -86,21 +95,21 @@ LOCKFILES := packages/shared/package-lock.json apps/api/package-lock.json apps/w
 .DEFAULT_GOAL := help
 
 help:
-	@echo "$(BLUE)Haul Book — make targets$(NC)"
+	@echo "$(BLUE)Haul Book - make targets$(NC)"
 	@echo ""
 	@echo "$(GREEN)Development$(NC)"
 	@echo "  make setup        - One-time: .env, lockfiles, build images, seed dep volumes (safe to re-run)"
-	@echo "  make up           - Start the portal → http://localhost:$(WEB_PORT)"
+	@echo "  make up           - Start the portal -> http://localhost:$(WEB_PORT)"
 	@echo "  make down         - Stop and remove containers (converted files are untouched)"
 	@echo "  make restart      - Recreate containers WITHOUT rebuilding (.env-only changes, e.g. OUTPUT_DIR)"
 	@echo "  make rebuild      - Rebuild images + re-seed dep volumes (Dockerfile/compose/deps changes)"
 	@echo "  make logs         - Tail all logs   (logs-api / logs-worker / logs-web / logs-db)"
 	@echo "  make output-dir   - Show where converted files are saved"
-	@echo "  make input-dir    - Show the watched input folder (INPUT_DIR) — dropped files auto-convert"
+	@echo "  make input-dir    - Show the watched input folder (INPUT_DIR) - dropped files auto-convert"
 	@echo "  make shell-api    - Shell into the api container (also shell-web)"
 	@echo "  make lock         - Regenerate package-lock.json files after editing a package.json"
 	@echo ""
-	@echo "$(GREEN)Database (Postgres 18 — saved companies and units)$(NC)"
+	@echo "$(GREEN)Database (Postgres 18 - saved companies and units)$(NC)"
 	@echo "  make migrate NAME=x     - Create + apply a Prisma migration after editing schema.prisma"
 	@echo "  make migrate-create NAME=x - Create a migration without applying it"
 	@echo "  make migrate-deploy    - Apply pending migrations (setup/rebuild do this)"
@@ -130,7 +139,7 @@ help:
 ## One-time setup: .env, lockfiles, dev images, dependency volumes (in-container
 ## npm ci), database migrations. Safe to re-run.
 setup:
-	@[ -f .env ] || (cp .env.example .env && echo "$(YELLOW)>> Created .env from .env.example — set OUTPUT_DIR to the folder you import into ProMiles from$(NC)")
+	@[ -f .env ] || (cp .env.example .env && echo "$(YELLOW)>> Created .env from .env.example - set OUTPUT_DIR to the folder you import into ProMiles from$(NC)")
 	@for f in $(LOCKFILES); do [ -f $$f ] || { $(MAKE) lock || exit 1; break; }; done
 	$(COMPOSE) up -d --wait db redis
 	$(COMPOSE) build shared api worker web
@@ -138,7 +147,7 @@ setup:
 	$(MAKE) migrate-deploy
 	@$(MAKE) --no-print-directory output-dir
 	@$(MAKE) --no-print-directory input-dir
-	@echo "$(GREEN)Setup complete — run 'make up', open http://localhost:$(WEB_PORT)$(NC)"
+	@echo "$(GREEN)Setup complete - run 'make up', open http://localhost:$(WEB_PORT)$(NC)"
 
 ## Seed the dependency volumes strictly from the lockfiles (npm ci), build
 ## @haulbook/shared, generate the Prisma client. (Internal helper of setup/rebuild.)
@@ -176,7 +185,7 @@ input-dir:
 
 up: output-dir input-dir
 	$(COMPOSE) up -d
-	@echo "$(GREEN)Portal starting$(NC) — web http://localhost:$(WEB_PORT) · api http://localhost:$(API_PORT)/api/health"
+	@echo "$(GREEN)Portal starting$(NC) - web http://localhost:$(WEB_PORT) | api http://localhost:$(API_PORT)/api/health"
 	@echo "Watch it come up: make ps / make logs"
 
 down:
@@ -247,7 +256,7 @@ shell-db:
 	$(COMPOSE) exec db psql -U $(DB) -d $(DB)
 
 sql:
-	@test -n "$(Q)" || { echo "Usage: make sql Q=\"select …\""; exit 1; }
+	@test -n "$(Q)" || { echo "Usage: make sql Q=\"select ...\""; exit 1; }
 	@$(COMPOSE) exec -T db psql -U $(DB) -d $(DB) -c "$(Q)"
 
 ## pg_dump to backup-<timestamp>.sql (no owners, so it restores under any role).
@@ -297,16 +306,16 @@ typecheck:
 ## Note: "web build" writes .next — stop a running dev stack first (`make down`).
 ci:
 	@$(COMPOSE) up -d --wait db >/dev/null
-	@echo "$(BLUE)════════════════════════════════════════════════════════════$(NC)"; \
-	echo "$(BLUE)  Haul Book — local CI (mirrors GitHub Actions)$(NC)"; \
-	echo "$(BLUE)════════════════════════════════════════════════════════════$(NC)"; \
-	PASS=0; FAIL=0; TOTAL=11; RESULTS=""; FIXES=""; \
+	@echo "$(BLUE)============================================================$(NC)"; \
+	echo "$(BLUE)  Haul Book - local CI (mirrors GitHub Actions)$(NC)"; \
+	echo "$(BLUE)============================================================$(NC)"; \
+	PASS=0; FAIL=0; TOTAL=11; RESULTS=$$(mktemp); FIXES=$$(mktemp); \
 	run_step() { \
 		N=$$1; NAME=$$2; shift 2; \
-		printf "$(YELLOW)[%2d/%d] %s$(NC)\n" "$$N" "$$TOTAL" "$$NAME"; \
+		echo "$(YELLOW)[$$N/$$TOTAL] $$NAME$(NC)"; \
 		eval "$$@" 2>&1; RC=$$?; \
-		if [ "$$RC" -eq 0 ]; then RESULTS="$$RESULTS\n  $(GREEN)PASS$(NC)  $$NAME"; PASS=$$((PASS+1)); \
-		else RESULTS="$$RESULTS\n  $(RED)FAIL$(NC)  $$NAME"; FAIL=$$((FAIL+1)); FIXES="$$FIXES\n  $$NAME"; fi; \
+		if [ "$$RC" -eq 0 ]; then echo "  $(GREEN)PASS$(NC)  $$NAME" >> "$$RESULTS"; PASS=$$((PASS+1)); \
+		else echo "  $(RED)FAIL$(NC)  $$NAME" >> "$$RESULTS"; echo "  $$NAME" >> "$$FIXES"; FAIL=$$((FAIL+1)); fi; \
 	}; \
 	run_step  1 "shared build"      "$(COMPOSE) run --rm --no-deps shared npm run build"; \
 	run_step  2 "api eslint"        "$(COMPOSE) run --rm --no-deps api npm run lint"; \
@@ -320,22 +329,24 @@ ci:
 	run_step 10 "web tests"         "$(COMPOSE) run --rm --no-deps web npm test"; \
 	run_step 11 "web build"         "$(COMPOSE) run --rm --no-deps web npm run build"; \
 	echo ""; \
-	echo "$(BLUE)════════════════════════════════════════════════════════════$(NC)"; \
+	echo "$(BLUE)============================================================$(NC)"; \
 	echo "$(BLUE)  Summary: $$PASS/$$TOTAL passed, $$FAIL failed$(NC)"; \
-	echo "$(BLUE)════════════════════════════════════════════════════════════$(NC)"; \
-	echo "$$RESULTS" | sed 's/\\n/\n/g'; \
+	echo "$(BLUE)============================================================$(NC)"; \
+	cat "$$RESULTS"; \
 	echo ""; \
 	if [ "$$FAIL" -gt 0 ]; then \
-		echo "$(RED)✗ $$FAIL gate(s) failed — fix before committing:$(NC)"; \
-		echo "$$FIXES" | sed 's/\\n/\n/g'; \
+		echo "$(RED)$$FAIL gate(s) FAILED - fix before committing:$(NC)"; \
+		cat "$$FIXES"; \
 		echo ""; \
 		echo "$(YELLOW)Common fixes:$(NC)"; \
-		echo "  eslint / prettier  →  make format-api  /  make format-web"; \
+		echo "  eslint / prettier  ->  make format-api  /  make format-web"; \
 		echo ""; \
+		rm -f "$$RESULTS" "$$FIXES"; \
 		exit 1; \
 	else \
-		echo "$(GREEN)✓ All $$TOTAL gates passed — safe to commit & push!$(NC)"; \
+		echo "$(GREEN)OK - all $$TOTAL gates passed, safe to commit & push.$(NC)"; \
 		echo ""; \
+		rm -f "$$RESULTS" "$$FIXES"; \
 	fi
 
 # ============================================================================
@@ -355,7 +366,7 @@ ps status:
 	$(COMPOSE) --profile full ps
 
 clean:
-	@echo "$(YELLOW)⚠️  Removes all containers AND volumes — including the DATABASE (saved companies/units).$(NC)"
+	@echo "$(YELLOW)WARNING: Removes all containers AND volumes - including the DATABASE (saved companies/units).$(NC)"
 	@echo "$(YELLOW)   Converted files in $(OUTPUT_DIR_ABS) are kept. Back up first: make db-backup$(NC)"
 	@read -r -p "Are you sure? [y/N] " REPLY; \
 	if [ "$$REPLY" = "y" ] || [ "$$REPLY" = "Y" ]; then \

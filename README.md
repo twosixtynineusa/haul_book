@@ -312,6 +312,9 @@ You can also approve or remove sources on the Companies tab.
   project folder. In PowerShell type `.\make <target>` in the project folder, or use cmd or Git
   Bash. If `make.bat` says Git Bash or GNU make wasn't found, install them (Setup, steps A.2 and
   A.3) and open a new window.
+- **Windows: `make setup` stops with "additional privileges requested: pass --allow=fs.read=…"**
+  (or the help shows `033[0;34m`): your copy predates the fix. Run `git pull`, then `make setup`
+  again; it's safe to re-run.
 - **Windows: `make: command not found` in Git Bash:** close Git Bash and open a new window after
   installing make. If it's still missing, run `winget install -e --id ezwinports.make` again.
 - **Windows: `docker` not found, or "cannot connect to the Docker daemon":** start Docker
