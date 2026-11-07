@@ -194,7 +194,7 @@ describe('Conversions (e2e)', () => {
 
   it('holds a known company’s file from a new source until the user confirms it', async () => {
     const company = 'SWITCH TEST LLC';
-    // As if its earlier files had all come from EZLogz.
+    // As if its earlier files had all come from Ezlogz.
     companies.saved.set(companyKey(company), {
       name: company,
       units: new Set(['22']),
@@ -228,7 +228,7 @@ describe('Conversions (e2e)', () => {
   it('converts an IFTA Mileage By State export with company and unit from the file', async () => {
     const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
     const file: [Buffer, string][] = [[fixture(name), name]];
-    // BELLAMSP-ANIR and HOS247 export this exact layout, and ACME has only used Wialon:
+    // Bellfam ELD and HOS247 export this exact layout, and ACME has only used Wialon:
     // nothing says which, so the user picks.
     const held = await post('/api/v1/conversions/preview', [], file).expect(200);
     expect(held.body.files[0]).toMatchObject({
@@ -256,7 +256,7 @@ describe('Conversions (e2e)', () => {
       fixture('promiles_expected_ifta_by_state_unit7_oct2026.csv').toString('utf8'),
     );
 
-    // From now on ACME's files in this layout are BELLAMSP-ANIR without asking.
+    // From now on ACME's files in this layout are Bellfam ELD without asking.
     const next = await post('/api/v1/conversions/preview', [], file).expect(200);
     expect(next.body.files[0]).toMatchObject({
       format: 'bellamsp-anir',

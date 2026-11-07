@@ -28,7 +28,7 @@ import type { Importer } from './types';
  * split), with one leg per state in file order. Miles come with decimals; ProMiles
  * gets whole miles (half up), and their exact sum is kept as the report's own total.
  *
- * BELLAMSP-ANIR and HOS247 both export this format.
+ * Bellfam ELD and HOS247 both export this format.
  */
 
 const TITLE = 'ifta mileage by state';

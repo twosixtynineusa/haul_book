@@ -17,9 +17,9 @@
 |---|---|---|---|
 | 1 | Wialon "IFTA Single Unit Mileage Report" export (CSV) | read in | `apps/api/src/conversion/importers/wialon.ts` |
 | 2 | ProMiles FuelTaxOnline TRIPSUMMARY2 import (CSV), one file per company | write out | `conversion/promiles.ts`; named + saved by `conversion.service.ts` |
-| 3 | "IFTA Mileage By State" export (CSV): BELLAMSP-ANIR and HOS247 (same layout) | read in | `importers/ifta-mileage-by-state.ts` |
-| 4 | EZLogz "Mileage Report" export (CSV) | read in | `importers/ezlogz.ts` |
-| 5 | Motive · Swift · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
+| 3 | "IFTA Mileage By State" export (CSV): Bellfam ELD and HOS247 (same layout) | read in | `importers/ifta-mileage-by-state.ts` |
+| 4 | Ezlogz "Mileage Report" export (CSV) | read in | `importers/ezlogz.ts` |
+| 5 | Motive · Swift ELD · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
 
 **Format detection:** each uploaded file is offered to every built importer's `detect()` (cheap
 header sniffing on the raw bytes). The first match wins; no match means the portal asks the user
@@ -129,9 +129,9 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ## 3. "IFTA Mileage By State" export — v1  *(read in)*
 
-- **Status (2026-11-07):** the real BELLAMSP-ANIR and HOS247 samples convert without warnings.
+- **Status (2026-11-07):** the real Bellfam ELD and HOS247 samples convert without warnings.
   Importing a converted file into FuelTaxOnline is still to be confirmed (MANUAL_TODO §C).
-- **Sources:** **BELLAMSP-ANIR** (`bellamsp-anir`) and **HOS247** (`hos247`), two separate sources
+- **Sources:** **Bellfam ELD** (`bellamsp-anir`) and **HOS247** (`hos247`), two separate sources
   that export this identical layout. Nothing in the file tells them apart, so:
   - if the file's company (its `Carrier:`) was converted from exactly one of the two before,
     that one is used;
@@ -177,13 +177,13 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ---
 
-## 4. EZLogz "Mileage Report" export — v1  *(read in)*
+## 4. Ezlogz "Mileage Report" export — v1  *(read in)*
 
-- **Status (2026-11-07):** four real EZLogz samples (one unit each, October 2026, one of them a
+- **Status (2026-11-07):** four real Ezlogz samples (one unit each, October 2026, one of them a
   team truck with two drivers) convert without warnings; their daily rows add up exactly to the
   unit's state totals. Importing a converted file into FuelTaxOnline is still to be confirmed
   (MANUAL_TODO §C).
-- **Source:** **EZLogz** (`ezlogz`).
+- **Source:** **Ezlogz** (`ezlogz`).
 - **File:** `Mileage_Report.csv` (the browser adds ` (1)`, ` (2)`, … to repeat downloads; the name
   carries nothing). Comma-separated, ASCII/UTF-8, LF line endings with a final newline, no BOM
   (CRLF is accepted). **No company and no period line** in the file.
@@ -211,7 +211,7 @@ the switch, which approves the new format too. The Companies tab shows and edits
   ```
 
   - In the daily rows **the `Unit` column repeats the state name**, not the unit #. That's how
-    EZLogz writes it; the column is ignored.
+    Ezlogz writes it; the column is ignored.
   - A team truck lists each driver's rows for the same day one after the other, so the order
     within a day is by driver, not by route.
 - **Detection:** the first line is `State,Miles` and a `Total distance:,` line follows within the
@@ -236,7 +236,7 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ---
 
-## 5. Motive · Swift · Vista ELD — not yet specified  *(read in)*
+## 5. Motive · Swift ELD · Vista ELD — not yet specified  *(read in)*
 
 - **Status:** placeholders. The portal lists them in the "Source format" picker (marked coming
   soon). They never auto-detect, and choosing one says the importer isn't built yet.
@@ -244,7 +244,7 @@ the switch, which approves the new format too. The Companies tab shows and edits
   far:
   - **Motive:** CSVs `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`)
     and `trip_reports_detail_by_vehicle`;
-  - **Swift** and **Vista ELD:** `IFTA_Report*.xls`, legacy Excel (needs an Excel reader).
+  - **Swift ELD** and **Vista ELD:** `IFTA_Report*.xls`, legacy Excel (needs an Excel reader).
 - **To specify each:** record the delimiter or sheet, the header, where the state, miles, dates,
   unit # and company name live, the encoding, and how totals and sub-rows are laid out. Then
   follow ROADMAP.md → "Source importers" with a made-up fixture in the same format.

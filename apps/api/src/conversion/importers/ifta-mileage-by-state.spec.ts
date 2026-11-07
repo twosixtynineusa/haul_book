@@ -33,8 +33,8 @@ function report(lines: string[], period = '2026/10/01 - 2026/10/31'): UploadedFi
   };
 }
 
-describe('IFTA Mileage By State (BELLAMSP-ANIR) — the sample export', () => {
-  it('is recognised as BELLAMSP-ANIR or HOS247, which export the same layout', () => {
+describe('IFTA Mileage By State (Bellfam ELD) — the sample export', () => {
+  it('is recognised as Bellfam ELD or HOS247, which export the same layout', () => {
     expect(detectFormats(SAMPLE)).toEqual(['bellamsp-anir', 'hos247']);
     expect(detectFormat(SAMPLE)).toBeNull(); // ambiguous: the company's source or the user decides
     expect(wialonImporter.detect(SAMPLE)).toBe(false);

@@ -27,8 +27,8 @@ function report(units: string[], days: string[]): UploadedFile {
   return { name: 'Mileage_Report (3).csv', bytes: Buffer.from(text + '\n') };
 }
 
-describe('EZLogz Mileage Report — the sample export', () => {
-  it('is recognised as EZLogz only', () => {
+describe('Ezlogz Mileage Report — the sample export', () => {
+  it('is recognised as Ezlogz only', () => {
     expect(detectFormats(SAMPLE)).toEqual(['ezlogz']);
     expect(ezlogzImporter.detect({ name: 'Mileage_Report.xlsx', bytes: SAMPLE.bytes })).toBe(false);
   });
@@ -78,7 +78,7 @@ describe('EZLogz Mileage Report — the sample export', () => {
   });
 });
 
-describe('EZLogz Mileage Report — variations', () => {
+describe('Ezlogz Mileage Report — variations', () => {
   it('splits a multi-month export into one trip per month, and accepts CRLF', () => {
     const file = report(
       ['7,,30 mi', '7,Texas,20 mi', '7,Oklahoma,10 mi'],

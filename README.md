@@ -21,11 +21,11 @@ Everything runs locally in Docker: nothing is uploaded anywhere, and there is no
 | Source system | Status |
 |---|---|
 | **Wialon**: IFTA Single Unit Mileage Report (CSV) | ✅ supported: unit # from the file name, company picked or typed |
-| **BELLAMSP-ANIR**: IFTA Mileage By State (CSV) | ✅ supported: company and unit # read from the file |
-| **EZLogz**: Mileage Report (CSV) | ✅ supported: unit # read from the file, company picked or typed |
-| **HOS247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as BELLAMSP-ANIR, so the company's source decides, or you pick |
+| **Bellfam ELD**: IFTA Mileage By State (CSV) | ✅ supported: company and unit # read from the file |
+| **Ezlogz**: Mileage Report (CSV) | ✅ supported: unit # read from the file, company picked or typed |
+| **HOS247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as Bellfam ELD, so the company's source decides, or you pick |
 | **Motive** | 🕒 planned |
-| **Swift** | 🕒 planned |
+| **Swift ELD** | 🕒 planned |
 | **Vista ELD** | 🕒 planned |
 
 Sample exports from the planned systems are welcome. See [Contributing](#contributing).
@@ -229,11 +229,11 @@ path; your user folder is shared by default.
 1. **Add mileage reports.** Drop one or more CSV or Excel exports on the portal. For Wialon, run
    the **IFTA Single Unit Mileage Report** and export it as CSV, keeping Wialon's file name,
    because the unit # is read from it (`22_IFTA_Single_Unit_Mileage_Report_….csv` → unit 22).
-   For BELLAMSP-ANIR or HOS247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
+   For Bellfam ELD or HOS247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
    carrier and unit # are read from the file, and miles are rounded to whole miles per state.
    Both systems export the same layout: a company's first file asks which one it came from, and
    later files for that company use the same answer.
-   For EZLogz, export the **Mileage Report** CSV for one unit (any number of months); the unit #
+   For Ezlogz, export the **Mileage Report** CSV for one unit (any number of months); the unit #
    is read from the file, the company isn't in it, and each month becomes its own trip.
 2. **Company & unit.** Each file shows its source format (detected, or picked from a dropdown) and
    its company and unit #. Fields read from the file are marked; otherwise pick from the saved

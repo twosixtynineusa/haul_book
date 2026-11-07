@@ -33,10 +33,10 @@
   "Imported: 1, Failures: 0" (a real export passed on 2026-11-06, so this is a formality).
 - [ ] Convert a Wialon report in the portal, pick the company it belongs to, and import the
   `<Company>_unit-22_2026-10.csv` it writes under that customer in FuelTaxOnline.
-- [ ] Convert a **BELLAMSP-ANIR** and a **HOS247** report and import each
+- [ ] Convert a **Bellfam ELD** and a **HOS247** report and import each
   into FuelTaxOnline under that customer. Confirm the whole-mile state legs import with
   "Failures: 0" (the export has decimals; Haul Book rounds them).
-- [ ] Convert an **EZLogz** Mileage Report, pick the company it belongs to, and import it into
+- [ ] Convert an **Ezlogz** Mileage Report, pick the company it belongs to, and import it into
   FuelTaxOnline under that customer. Confirm "Failures: 0" and that the trip dates (first to last
   day driven that month) are accepted.
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles

@@ -2,6 +2,15 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Source names match the providers' registered names
+- Source labels now use each provider's name as registered on FMCSA's ELD list
+  (eld.fmcsa.dot.gov): **Ezlogz** (Ezlogz Inc; was "EZLogz"), **Swift ELD** (Swift ELD, not
+  the carrier Swift Transportation; was "Swift") and **Bellfam ELD** (Bellfam, bellfameld.com; was
+  "BELLAMSP-ANIR", confirmed by the owner). HOS247 (HOS247 LLC), Motive (Motive
+  Technologies, Inc.) and Vista ELD already matched.
+- Only the labels changed: the source ids (`ezlogz`, `swift`, …) are stored in Postgres as each
+  company's approved sources and stay as they are: `bellamsp-anir` is Bellfam ELD.
+
 ## 2026-11-07 — EZLogz importer
 - **EZLogz is a built source**: the "Mileage Report" CSV (`importers/ezlogz.ts`,
   docs/data-contracts.md §4, now v1). The source list calls it "EZLogz — Mileage Report"; Motive,

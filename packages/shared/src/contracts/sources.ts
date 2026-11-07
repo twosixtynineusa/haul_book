@@ -7,11 +7,13 @@ import { z } from 'zod';
  */
 export const SOURCE_FORMATS = [
   { id: 'wialon', label: 'Wialon — IFTA Single Unit Mileage Report', available: true },
-  { id: 'bellamsp-anir', label: 'BELLAMSP-ANIR — IFTA Mileage By State', available: true },
-  { id: 'ezlogz', label: 'EZLogz — Mileage Report', available: true },
+  // Ids are stored in Postgres (each company's approved sources), so they never change, even when
+  // a label does: 'bellamsp-anir' is Bellfam ELD.
+  { id: 'bellamsp-anir', label: 'Bellfam ELD — IFTA Mileage By State', available: true },
+  { id: 'ezlogz', label: 'Ezlogz — Mileage Report', available: true },
   { id: 'hos247', label: 'HOS247 — IFTA Mileage By State', available: true },
   { id: 'motive', label: 'Motive', available: false },
-  { id: 'swift', label: 'Swift', available: false },
+  { id: 'swift', label: 'Swift ELD', available: false },
   { id: 'vista-eld', label: 'Vista ELD', available: false },
 ] as const;
 
@@ -69,7 +71,7 @@ export const SourceFileSchema = z.object({
   /** True when `format` came from auto-detection rather than the user's pick. */
   formatDetected: z.boolean(),
   /**
-   * Several sources export this file's exact layout (BELLAMSP-ANIR and HOS247) and nothing
+   * Several sources export this file's exact layout (Bellfam ELD and HOS247) and nothing
    * settled which: the candidates, and `needs` has `format`. When the file's company was only
    * ever converted from one of them, that one is used instead (`format` set, this empty).
    */

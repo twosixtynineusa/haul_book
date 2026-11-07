@@ -21,7 +21,7 @@ export const IMPORTERS: Record<SourceFormatId, Importer> = {
 
 /**
  * Every format whose `detect` recognises the file. Usually one; several when providers
- * export the same layout (BELLAMSP-ANIR and HOS247), and the file alone can't tell them apart.
+ * export the same layout (Bellfam ELD and HOS247), and the file alone can't tell them apart.
  */
 export function detectFormats(file: UploadedFile): SourceFormatId[] {
   return Object.values(IMPORTERS)

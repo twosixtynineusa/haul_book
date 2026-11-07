@@ -13,7 +13,7 @@ import {
 import type { Importer } from './types';
 
 /**
- * EZLogz "Mileage Report" CSV export (docs/data-contracts.md §4), e.g. `Mileage_Report.csv`.
+ * Ezlogz "Mileage Report" CSV export (docs/data-contracts.md §4), e.g. `Mileage_Report.csv`.
  * Four sections, one after the other, each starting with its own header row:
  *
  *     State,Miles                      ← totals per state, alphabetical
@@ -35,7 +35,7 @@ import type { Importer } from './types';
  *
  * Comma-separated, LF, no BOM. Full state names, miles with a ` mi` suffix. The file carries
  * no company and no period line. The unit # is the Units section's; the daily rows don't say
- * which unit drove them (EZLogz writes the state again in their Unit column), so a file must
+ * which unit drove them (Ezlogz writes the state again in their Unit column), so a file must
  * list exactly one unit. The daily rows make one trip per month, with one leg per state from
  * its first to its last day that month, in order of first entry. Legs get whole miles (half
  * up), and the exact sum of that month's daily totals is the report's own total.
@@ -92,7 +92,7 @@ export function readEzlogz(
 ): SourceReport {
   const all = lines(decodeText(file.bytes));
   if (!/^state\s*,\s*miles$/i.test(all[0] ?? '')) {
-    throw new ConversionError(`${file.name}: not an EZLogz mileage report`);
+    throw new ConversionError(`${file.name}: not an Ezlogz mileage report`);
   }
 
   let section: Section | null = null;

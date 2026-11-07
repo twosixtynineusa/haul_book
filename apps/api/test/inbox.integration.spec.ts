@@ -127,7 +127,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   });
 
   it('holds a company’s file from a new source until confirmed, then converts the rest', async () => {
-    // Its earlier files came from EZLogz; this one is a Wialon export.
+    // Its earlier files came from Ezlogz; this one is a Wialon export.
     await companies.record([{ company: COMPANY, units: ['22'], sources: ['ezlogz'] }]);
     drop(`${COMPANY}/${RAW_NAME}`);
     expect(await settle()).toMatchObject({ needsInput: 1, converted: 0 });
