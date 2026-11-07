@@ -1,0 +1,88 @@
+# Haul Book — CI (Option 1, TS/NestJS)
+#
+# Mirrors `make ci` (see §10A of Tech_Stack.md) — local == CI is the rule.
+# Standalone-package monorepo (no root workspaces): packages/shared builds first
+# (apps consume its compiled dist/ via a file: dep), then apps/api and apps/web
+# install → lint → typecheck → build → test; api tests run against a real
+# Postgres 18 service container (the saved company → unit list).
+#
+# No security scanners: the app only ever runs locally on the user's own machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Lint, typecheck, build & test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: haulbook
+          POSTGRES_PASSWORD: haulbook
+          POSTGRES_DB: haulbook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U haulbook -d haulbook"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://haulbook:haulbook@localhost:5432/haulbook
+      DATABASE_URL_TEST: postgresql://haulbook:haulbook@localhost:5432/haulbook_test
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/shared/package-lock.json
+            apps/api/package-lock.json
+            apps/web/package-lock.json
+
+      # shared first — apps depend on its compiled dist/ via file:../../packages/shared
+      - name: Install shared
+        run: npm ci --prefix packages/shared
+      - name: Build shared
+        run: npm run build --prefix packages/shared
+
+      - name: Install api
+        run: npm ci --prefix apps/api
+      - name: Install web
+        run: npm ci --prefix apps/web
+
+      - name: Lint api
+        run: npm run lint --prefix apps/api
+      - name: Lint web
+        run: npm run lint --prefix apps/web
+
+      - name: Prettier check (api)
+        run: npm run format:check --prefix apps/api
+      - name: Prettier check (web)
+        run: npm run format:check --prefix apps/web
+
+      - name: Typecheck api
+        run: npm run typecheck --prefix apps/api
+      - name: Typecheck web
+        run: npm run typecheck --prefix apps/web
+
+      - name: Build api
+        run: npm run build --prefix apps/api
+      - name: Build web
+        run: npm run build --prefix apps/web
+
+      - name: Apply migrations
+        run: npm run migrate:deploy --prefix apps/api
+      - name: Test api (against postgres)
+        run: npm test --prefix apps/api
+      - name: Test web
+        run: npm test --prefix apps/web

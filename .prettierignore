@@ -1,0 +1,12 @@
+# Build output & deps (masked by named volumes in dev; never formatted)
+node_modules/
+dist/
+.next/
+coverage/
+
+# Generated
+*.tsbuildinfo
+apps/web/next-env.d.ts
+
+# Lockfiles
+package-lock.json

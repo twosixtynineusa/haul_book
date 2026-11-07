@@ -1,0 +1,8 @@
+###TRIPSUMMARY2,,,,,,,,,,,
+Unit#,Begin Date,End date,Begin Odo,D(istance) or O(dometer),M(iles) or K(ilometers),State,Distance or Odometer,Toll Distance,Empty(Y/N),Off Road(Y/N),"Permitting (None, IFTA, Mile, Both)"
+17568,4/1/2019,4/4/2019,1,O,M,TX,1234,50,n,n,
+,,,,,,LA,1342,12,n,n,
+,,,,,,TX,1896,0,n,n,
+17568,4/4/2019,4/5/2019,1896,M,M,TX,125,12,n,n,
+,,,,,,LA,259,52,n,n,
+,,,,,,TX,123,0,n,n,

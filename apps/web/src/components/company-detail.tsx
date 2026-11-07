@@ -1,0 +1,528 @@
+'use client';
+
+import { useState, type ReactNode } from 'react';
+import { GitMerge, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import {
+  SOURCE_FORMATS,
+  sourceName,
+  type Company,
+  type SourceFormatId,
+  type Truck,
+} from '@haulbook/shared';
+import {
+  addTruck,
+  deleteCompany,
+  deleteTruck,
+  mergeCompany,
+  updateCompany,
+  updateTruck,
+} from '@/lib/api';
+import {
+  EMPTY_TRUCK,
+  changedDetails,
+  detailsDraft,
+  formatIsoDate,
+  truckChanges,
+  truckDraft,
+  type DetailField,
+  type TruckDraft,
+} from '@/lib/companies';
+import { formatDateTime } from '@/lib/format';
+import { fieldClass } from './sources-panel';
+import { Button, buttonClass, cx } from './ui';
+
+/** busy + error around one API call; `run` resolves to its result, or undefined on failure. */
+function useAction() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
+    setBusy(true);
+    setError(null);
+    try {
+      return await action();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return undefined;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run };
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+const DETAIL_LABELS: Record<DetailField, string> = {
+  name: 'Company name',
+  dotNumber: 'USDOT #',
+  iftaAccount: 'IFTA account #',
+  contactName: 'Contact',
+  phone: 'Phone',
+  email: 'Email',
+  notes: 'Notes',
+};
+
+/** One company, expanded: its details, approved sources, trucks, and merge / delete. */
+export function CompanyDetail({
+  company,
+  others,
+  onSaved,
+  onDeleted,
+  onMerged,
+}: {
+  company: Company;
+  /** The other companies, to merge this one into. */
+  others: Company[];
+  onSaved: (company: Company) => void;
+  onDeleted: () => void;
+  onMerged: (target: Company) => void;
+}) {
+  return (
+    <div className="space-y-6 border-t border-border px-4 py-4">
+      <DetailsForm company={company} onSaved={onSaved} />
+      <SourcesEditor company={company} onSaved={onSaved} />
+      <TrucksTable company={company} onSaved={onSaved} />
+      <DangerZone company={company} others={others} onDeleted={onDeleted} onMerged={onMerged} />
+    </div>
+  );
+}
+
+function DetailsForm({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+  const [draft, setDraft] = useState(() => detailsDraft(company));
+  const { busy, error, run } = useAction();
+  const changes = changedDetails(company, draft);
+  const dirty = Object.keys(changes).length > 0;
+
+  const field = (f: DetailField, wide = false) => (
+    <label
+      key={f}
+      className={cx('block text-xs font-medium text-muted-foreground', wide && 'sm:col-span-2')}
+    >
+      {DETAIL_LABELS[f]}
+      {f === 'notes' ? (
+        <textarea
+          rows={2}
+          value={draft[f]}
+          onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value }))}
+          className={cx(fieldClass(false), 'mt-1')}
+        />
+      ) : (
+        <input
+          type={f === 'email' ? 'email' : 'text'}
+          value={draft[f]}
+          onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value }))}
+          className={cx(fieldClass(f === 'name' && !draft.name.trim()), 'mt-1')}
+        />
+      )}
+    </label>
+  );
+
+  const save = async () => {
+    const saved = await run(() => updateCompany(company.id, changes));
+    if (saved) {
+      onSaved(saved);
+      setDraft(detailsDraft(saved));
+    }
+  };
+
+  return (
+    <Section title="Details">
+      <form
+        className="grid gap-3 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) void save();
+        }}
+      >
+        {field('name', true)}
+        {field('dotNumber')}
+        {field('iftaAccount')}
+        {field('contactName')}
+        {field('phone')}
+        {field('email', true)}
+        {field('notes', true)}
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+          <button
+            type="submit"
+            disabled={!dirty || busy || !draft.name.trim()}
+            className={buttonClass()}
+          >
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            Save details
+          </button>
+          {dirty && (
+            <Button variant="ghost" onClick={() => setDraft(detailsDraft(company))}>
+              Undo changes
+            </Button>
+          )}
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function SourcesEditor({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+  const { busy, error, run } = useAction();
+  const save = async (sources: SourceFormatId[]) => {
+    const saved = await run(() => updateCompany(company.id, { sources }));
+    if (saved) onSaved(saved);
+  };
+  const addable = SOURCE_FORMATS.filter((f) => !company.sources.includes(f.id));
+
+  return (
+    <Section title="Approved sources">
+      <p className="text-xs text-muted-foreground">
+        Files from these sources convert automatically. A file from any other source waits on the
+        Dashboard until you confirm the switch, which adds the source here.
+        {company.sources.length === 0 && ' None yet: the next converted file’s source is approved.'}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {company.sources.map((s) => (
+          <span
+            key={s}
+            className="inline-flex items-center gap-1 rounded-full bg-primary-soft py-1 pl-3 pr-1 text-xs font-medium text-primary"
+          >
+            {sourceName(s)}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save(company.sources.filter((x) => x !== s))}
+              className="rounded-full p-0.5 hover:bg-primary/10"
+              aria-label={`Stop approving ${sourceName(s)}`}
+              title="Remove: its files will wait for confirmation again"
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
+        ))}
+        {addable.length > 0 && (
+          <select
+            value=""
+            disabled={busy}
+            onChange={(e) =>
+              e.target.value && void save([...company.sources, e.target.value as SourceFormatId])
+            }
+            className={cx(fieldClass(false), 'w-auto py-1 text-xs')}
+            aria-label="Approve another source"
+          >
+            <option value="">Approve a source…</option>
+            {addable.map((f) => (
+              <option key={f.id} value={f.id}>
+                {sourceName(f.id)}
+                {f.available ? '' : ' (coming soon)'}
+              </option>
+            ))}
+          </select>
+        )}
+        {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />}
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </Section>
+  );
+}
+
+function TrucksTable({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  return (
+    <Section title={`Trucks (${company.trucks.length})`}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="py-2 pr-3 font-medium">Unit #</th>
+              <th className="py-2 pr-3 font-medium">VIN</th>
+              <th className="py-2 pr-3 font-medium">Plate</th>
+              <th className="py-2 pr-3 font-medium">Odometer</th>
+              <th className="py-2 pr-3 font-medium">Last converted</th>
+              <th className="py-2 pr-3 font-medium">Notes</th>
+              <th className="py-2 font-medium">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {company.trucks.map((t) =>
+              editing === t.id ? (
+                <TruckEditor
+                  key={t.id}
+                  companyId={company.id}
+                  truck={t}
+                  onDone={(saved) => {
+                    if (saved) onSaved(saved);
+                    setEditing(null);
+                  }}
+                />
+              ) : (
+                <TruckRow
+                  key={t.id}
+                  companyId={company.id}
+                  truck={t}
+                  onEdit={() => setEditing(t.id)}
+                  onSaved={onSaved}
+                />
+              ),
+            )}
+            {adding && (
+              <TruckEditor
+                companyId={company.id}
+                onDone={(saved) => {
+                  if (saved) onSaved(saved);
+                  setAdding(false);
+                }}
+              />
+            )}
+            {company.trucks.length === 0 && !adding && (
+              <tr>
+                <td colSpan={7} className="py-4 text-center text-sm text-muted-foreground">
+                  No trucks yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {!adding && (
+        <Button variant="secondary" onClick={() => setAdding(true)}>
+          <Plus className="size-4" aria-hidden />
+          Add truck
+        </Button>
+      )}
+    </Section>
+  );
+}
+
+function TruckRow({
+  companyId,
+  truck,
+  onEdit,
+  onSaved,
+}: {
+  companyId: string;
+  truck: Truck;
+  onEdit: () => void;
+  onSaved: (c: Company) => void;
+}) {
+  const { busy, error, run } = useAction();
+  const remove = async () => {
+    if (!window.confirm(`Delete unit ${truck.unit}? Its saved odometer is deleted too.`)) return;
+    const saved = await run(() => deleteTruck(companyId, truck.id));
+    if (saved) onSaved(saved);
+  };
+  return (
+    <tr className="border-b border-border align-top last:border-0">
+      <td className="py-2.5 pr-3 font-semibold">{truck.unit}</td>
+      <td className="py-2.5 pr-3 font-mono text-xs">{truck.vin ?? '—'}</td>
+      <td className="py-2.5 pr-3">{truck.plate ?? '—'}</td>
+      <td className="py-2.5 pr-3 tabular-nums">
+        {truck.odometer ? (
+          <>
+            {Number(truck.odometer).toLocaleString('en-US')}
+            <p className="text-xs text-muted-foreground">
+              end of {formatIsoDate(truck.odometerAsOf)}
+            </p>
+          </>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="py-2.5 pr-3 text-xs">
+        {truck.lastConvertedAt ? (
+          <>
+            {formatDateTime(truck.lastConvertedAt)}
+            <p className="text-muted-foreground">
+              {truck.lastSource && sourceName(truck.lastSource)}
+              {truck.lastPeriodEnd && ` · through ${formatIsoDate(truck.lastPeriodEnd)}`}
+            </p>
+          </>
+        ) : (
+          <span className="text-muted-foreground">Never</span>
+        )}
+      </td>
+      <td className="max-w-[14rem] py-2.5 pr-3 text-xs text-muted-foreground">
+        <p className="line-clamp-2" title={truck.notes ?? undefined}>
+          {truck.notes ?? ''}
+        </p>
+        {error && <p className="text-danger">{error}</p>}
+      </td>
+      <td className="whitespace-nowrap py-1.5 text-right">
+        <Button
+          variant="ghost"
+          className="px-2"
+          onClick={onEdit}
+          aria-label={`Edit unit ${truck.unit}`}
+        >
+          <Pencil className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-2 hover:text-danger"
+          disabled={busy}
+          onClick={() => void remove()}
+          aria-label={`Delete unit ${truck.unit}`}
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+/** Edits a truck in place, or adds one (`truck` undefined). */
+function TruckEditor({
+  companyId,
+  truck,
+  onDone,
+}: {
+  companyId: string;
+  truck?: Truck;
+  onDone: (saved?: Company) => void;
+}) {
+  const [draft, setDraft] = useState<TruckDraft>(() => (truck ? truckDraft(truck) : EMPTY_TRUCK));
+  const { busy, error, run } = useAction();
+  const set = (f: keyof TruckDraft) => (e: { target: { value: string } }) =>
+    setDraft((d) => ({ ...d, [f]: e.target.value }));
+  const input = (f: keyof TruckDraft, label: string, props: object = {}) => (
+    <input
+      value={draft[f]}
+      onChange={set(f)}
+      aria-label={label}
+      placeholder={label}
+      className={cx(fieldClass(f === 'unit' && !draft.unit.trim()), 'py-1')}
+      {...props}
+    />
+  );
+
+  const save = async () => {
+    const changes = truckChanges(draft, truck);
+    if (truck && Object.keys(changes).length === 0) return onDone();
+    const saved = await run(() =>
+      truck
+        ? updateTruck(companyId, truck.id, changes)
+        : addTruck(companyId, { ...changes, unit: draft.unit.trim() }),
+    );
+    if (saved) onDone(saved);
+  };
+
+  return (
+    <tr className="border-b border-border bg-muted/40 align-top">
+      <td className="py-2 pr-2">{input('unit', 'Unit #', { autoFocus: !truck })}</td>
+      <td className="py-2 pr-2">{input('vin', 'VIN', { maxLength: 17 })}</td>
+      <td className="py-2 pr-2">{input('plate', 'Plate')}</td>
+      <td className="space-y-1 py-2 pr-2">
+        {input('odometer', 'Odometer', { inputMode: 'decimal' })}
+        {input('odometerAsOf', 'As of', { type: 'date' })}
+      </td>
+      <td className="py-2 pr-2 text-xs text-muted-foreground">
+        The odometer is where the truck&apos;s last converted period ended; the next one starts
+        there.
+      </td>
+      <td className="py-2 pr-2">
+        {input('notes', 'Notes')}
+        {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+      </td>
+      <td className="whitespace-nowrap py-2 text-right">
+        <Button onClick={() => void save()} disabled={busy || !draft.unit.trim()} className="px-3">
+          {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+          Save
+        </Button>
+        <Button variant="ghost" onClick={() => onDone()} className="px-2">
+          Cancel
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+function DangerZone({
+  company,
+  others,
+  onDeleted,
+  onMerged,
+}: {
+  company: Company;
+  others: Company[];
+  onDeleted: () => void;
+  onMerged: (target: Company) => void;
+}) {
+  const [into, setInto] = useState('');
+  const { busy, error, run } = useAction();
+  const target = others.find((o) => o.id === into);
+
+  const merge = async () => {
+    if (!target) return;
+    const ok = window.confirm(
+      `Merge ${company.name} into ${target.name}? Its trucks, odometers and approved sources ` +
+        `move to ${target.name}, and ${company.name} is removed.`,
+    );
+    if (!ok) return;
+    const merged = await run(() => mergeCompany(company.id, target.id));
+    if (merged) onMerged(merged);
+  };
+
+  const remove = async () => {
+    const ok = window.confirm(
+      `Delete ${company.name} and its ${company.trucks.length} truck(s), including their saved ` +
+        `odometers? Converted files are not touched. This can't be undone.`,
+    );
+    if (!ok) return;
+    const done = await run(async () => {
+      await deleteCompany(company.id);
+      return true;
+    });
+    if (done) onDeleted();
+  };
+
+  return (
+    <Section title="Merge or delete">
+      <div className="flex flex-wrap items-center gap-2">
+        {others.length > 0 && (
+          <>
+            <select
+              value={into}
+              onChange={(e) => setInto(e.target.value)}
+              className={cx(fieldClass(false), 'w-auto min-w-[14rem]')}
+              aria-label="Company to merge into"
+            >
+              <option value="">Merge into… (e.g. another spelling)</option>
+              {others.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+            <Button variant="secondary" disabled={!target || busy} onClick={() => void merge()}>
+              <GitMerge className="size-4" aria-hidden />
+              Merge
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          className="text-danger hover:bg-danger-bg hover:text-danger sm:ml-auto"
+          disabled={busy}
+          onClick={() => void remove()}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <Trash2 className="size-4" aria-hidden />
+          )}
+          Delete company
+        </Button>
+      </div>
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </Section>
+  );
+}

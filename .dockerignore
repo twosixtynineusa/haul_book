@@ -1,0 +1,20 @@
+# Never ship host artifacts into the build context. In docker-first dev these
+# shouldn't exist on the host anyway (deps live in named volumes), but this keeps
+# the prod `build` stage hermetic and the image small.
+**/node_modules
+**/dist
+**/.next
+**/coverage
+.git
+.env
+*.log
+output
+*.csv
+!apps/api/test/fixtures/*.csv
+*.png
+backup-*.sql
+input
+*.xls
+*.xlsx
+New folder
+samples

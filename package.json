@@ -1,0 +1,11 @@
+{
+  "name": "haul-book",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Haul Book monorepo root — metadata only. Development is docker-first (see Makefile + docker-compose.yml): no npm/node ever runs on the host, and this root package has no dependencies or scripts. The real packages are packages/shared, apps/api, and apps/web — standalone npm packages (no workspaces), each with its own package.json + package-lock.json installed in-container via npm ci.",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  }
+}

@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens (HSL channels) — consumed by tailwind.config.ts. */
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 222 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 12%;
+    --muted: 220 16% 93%;
+    --muted-foreground: 220 9% 40%;
+    --border: 220 14% 87%;
+    --input: 220 14% 80%;
+    --ring: 214 84% 45%;
+    --primary: 214 84% 42%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 214 90% 95%;
+    --success: 152 64% 26%;
+    --success-bg: 150 55% 93%;
+    --warning: 30 90% 30%;
+    --warning-bg: 42 95% 91%;
+    --danger: 0 70% 40%;
+    --danger-bg: 0 85% 95%;
+    --radius: 0.625rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 222 24% 8%;
+      --foreground: 220 20% 92%;
+      --card: 222 22% 11%;
+      --card-foreground: 220 20% 92%;
+      --muted: 222 18% 16%;
+      --muted-foreground: 220 10% 65%;
+      --border: 222 16% 21%;
+      --input: 222 14% 30%;
+      --ring: 213 90% 62%;
+      --primary: 213 90% 58%;
+      --primary-foreground: 222 40% 8%;
+      --primary-soft: 214 50% 18%;
+      --success: 150 55% 62%;
+      --success-bg: 152 40% 14%;
+      --warning: 40 90% 62%;
+      --warning-bg: 35 50% 14%;
+      --danger: 0 85% 70%;
+      --danger-bg: 0 45% 16%;
+    }
+  }
+
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}

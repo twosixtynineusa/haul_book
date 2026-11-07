@@ -1,0 +1,256 @@
+# Haul Book — docker-first development (nothing runs on the host except
+# docker, docker compose, make, git). Always drive it through `make`.
+#
+# DEFAULT profile (`make up`) = the dev stack: shared (tsc --watch), api (Nest
+# watch), web (next dev). Dev services bind-mount the repo at /workspace;
+# node_modules / dist / .next are MASKED by named volumes so build artifacts
+# never touch the host. Seed those volumes with `make setup` before the first
+# `make up`.
+#
+# `--profile full` adds the PRODUCTION-image services (api-prod, web-prod) for
+# testing the images locally — same host ports, so `make down` first.
+#
+# Infra: Postgres 18 (saved company → unit list + the input-folder inbox) and
+# Redis 7 (BullMQ). The `worker` process scans INPUT_DIR on a repeatable BullMQ job
+# and auto-converts what it finds; the `api` serves the portal. No MinIO.
+# The DB host port (DB_PORT, default 5433) exists only for your own psql tools;
+# the app always uses the in-container hostname db:5432.
+#
+# OUTPUT_DIR (from .env) is the host folder converted files are saved to. The
+# Makefile resolves it to an absolute path (OUTPUT_DIR_ABS) and exports the
+# host uid/gid so the api can hand the files it writes to you.
+# INPUT_DIR (from .env) is the watched folder, resolved the same way (INPUT_DIR_ABS);
+# converted sources are moved to INPUT_DIR/archive/.
+
+name: haul_book
+
+x-api-env: &api-env
+  PORT: "3000"
+  NODE_ENV: development
+  DATABASE_URL: postgresql://haulbook:haulbook@db:5432/haulbook
+  DATABASE_URL_TEST: postgresql://haulbook:haulbook@db:5432/haulbook_test
+  REDIS_URL: redis://redis:6379
+  INPUT_PATH: /data/input
+  INPUT_DIR_LABEL: ${INPUT_DIR_ABS:-${INPUT_DIR:-./input}}
+  INPUT_SCAN_SECONDS: ${INPUT_SCAN_SECONDS:-30}
+  OUTPUT_PATH: /data/output
+  OUTPUT_DIR_LABEL: ${OUTPUT_DIR_ABS:-${OUTPUT_DIR:-./output}}
+  OUTPUT_UID: ${HOST_UID:-1000}
+  OUTPUT_GID: ${HOST_GID:-1000}
+
+x-web-env: &web-env
+  NODE_ENV: development
+  API_INTERNAL_URL: http://api:3000
+  NEXT_TELEMETRY_DISABLED: "1"
+  # Docker Desktop bind mounts don't deliver inotify events reliably — poll.
+  WATCHPACK_POLLING: "true"
+
+# Same for tsc --watch / nest --watch (shared + api).
+x-tsc-poll: &tsc-poll
+  TSC_WATCHFILE: DynamicPriorityPolling
+  TSC_WATCHDIRECTORY: DynamicPriorityPolling
+
+x-output-volume: &output-volume ${OUTPUT_DIR_ABS:-${OUTPUT_DIR:-./output}}:/data/output
+x-input-volume: &input-volume ${INPUT_DIR_ABS:-${INPUT_DIR:-./input}}:/data/input
+
+x-infra-depends: &infra-depends
+  db:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+services:
+  # ---- Infra ----
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: haulbook
+      POSTGRES_PASSWORD: haulbook
+      POSTGRES_DB: haulbook
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      # postgres:18 keeps data in a version subdir — mount at /var/lib/postgresql
+      # (NOT .../data, which 18+ rejects).
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U haulbook -d haulbook"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # ---- Dev stack (default profile) ----
+  # Keeps packages/shared/dist fresh so api/web hot-reload against the latest
+  # Zod contracts.
+  shared:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    working_dir: /workspace/packages/shared
+    command: ["npx", "tsc", "--watch", "--preserveWatchOutput"]
+    environment: *tsc-poll
+    volumes:
+      - .:/workspace
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - shared_dist:/workspace/packages/shared/dist
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    command: ["npm", "run", "start:dev"]
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      <<: [*api-env, *tsc-poll]
+    volumes:
+      - .:/workspace
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - shared_dist:/workspace/packages/shared/dist
+      - api_node_modules:/workspace/apps/api/node_modules
+      - api_dist:/workspace/apps/api/dist
+      - *output-volume
+      - *input-volume
+    depends_on:
+      <<: *infra-depends
+      shared:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    restart: unless-stopped
+
+  # Scans INPUT_DIR every INPUT_SCAN_SECONDS (BullMQ repeatable job) and
+  # auto-converts. Same image as the api; its own dist volume so the two
+  # `nest --watch` builds never write over each other.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: dev
+    command: ["npm", "run", "start:worker:dev"]
+    environment:
+      <<: [*api-env, *tsc-poll]
+    volumes:
+      - .:/workspace
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - shared_dist:/workspace/packages/shared/dist
+      - api_node_modules:/workspace/apps/api/node_modules
+      - worker_dist:/workspace/apps/api/dist
+      - *output-volume
+      - *input-volume
+    depends_on:
+      <<: *infra-depends
+      shared:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    command: ["npm", "run", "dev"]
+    ports:
+      - "${WEB_PORT:-3100}:3100"
+    environment: *web-env
+    volumes:
+      - .:/workspace
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - shared_dist:/workspace/packages/shared/dist
+      - web_node_modules:/workspace/apps/web/node_modules
+      - web_next:/workspace/apps/web/.next
+    depends_on:
+      shared:
+        condition: service_started
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3100 || exit 1"]
+      interval: 15s
+      timeout: 30s
+      retries: 20
+      start_period: 180s
+    restart: unless-stopped
+
+  # ---- Production images (profile: full) — test the release images locally ----
+  # Same host ports as dev: `make down` first.
+  api-prod:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: prod
+    # Run as you, so files written to the bind-mounted output folder are yours.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      <<: *api-env
+      NODE_ENV: production
+    volumes:
+      - *output-volume
+      - *input-volume
+    depends_on: *infra-depends
+
+  worker-prod:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: prod
+    command: ["node", "dist/worker.js"]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      <<: *api-env
+      NODE_ENV: production
+    volumes:
+      - *output-volume
+      - *input-volume
+    depends_on: *infra-depends
+
+  web-prod:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: prod
+      args:
+        API_INTERNAL_URL: http://api-prod:3000
+    ports:
+      - "${WEB_PORT:-3100}:3100"
+    environment:
+      <<: *web-env
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api-prod:3000
+    depends_on:
+      api-prod:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  # Dependency/artifact volumes masking host paths (seeded by `make setup`,
+  # reset by `make rebuild`):
+  shared_node_modules:
+  shared_dist:
+  api_node_modules:
+  api_dist:
+  worker_dist:
+  web_node_modules:
+  web_next:

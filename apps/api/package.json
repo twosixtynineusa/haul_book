@@ -1,0 +1,67 @@
+{
+  "name": "@haulbook/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Haul Book API — NestJS HTTP server (:3000) + BullMQ worker that auto-converts files dropped in the watched input folder (same image, `node dist/worker.js`). Converts ELD/telematics mileage reports to ProMiles TRIPSUMMARY2 CSVs, saves them to the output folder, and keeps the company → unit list in Postgres 18 (Prisma).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "build": "nest build",
+    "start:dev": "nest start --watch",
+    "start:worker:dev": "nest start --watch --entryFile worker",
+    "start:prod": "node dist/main.js",
+    "start:worker:prod": "node dist/worker.js",
+    "test": "jest --runInBand",
+    "test:cov": "jest --runInBand --coverage",
+    "test:watch": "jest --runInBand --watch",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@haulbook/shared": "file:../../packages/shared",
+    "@nestjs/bullmq": "^11.0.2",
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-express": "^11.1.28",
+    "@prisma/client": "^6.19.2",
+    "bullmq": "^5.80.5",
+    "csv-parse": "^7.0.2",
+    "prisma": "^6.19.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.0",
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.0.9",
+    "@nestjs/testing": "^11.1.28",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^29.5.14",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.13.14",
+    "@types/supertest": "^6.0.3",
+    "eslint": "^9.30.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.2",
+    "supertest": "^7.1.0",
+    "ts-jest": "^29.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.35.0"
+  },
+  "overrides": {
+    "multer": "^2.5.0",
+    "deepmerge-ts": "^8.0.0",
+    "glob@^13.0.0": "^14.0.2",
+    "minimatch@^10.0.0": "^11.0.1"
+  }
+}

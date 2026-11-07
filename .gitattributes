@@ -1,0 +1,11 @@
+# LF everywhere, whatever the OS or git's core.autocrlf: a Windows checkout with CRLF
+# breaks the Makefile, the prettier check (LF only) and the containers' scripts.
+* text=auto eol=lf
+
+# Test fixtures are compared byte for byte; the raw Wialon export is CRLF and in a
+# Windows codepage. Never convert them.
+apps/api/test/fixtures/** -text
+
+*.png binary
+*.xlsx binary
+*.xls binary

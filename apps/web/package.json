@@ -1,0 +1,47 @@
+{
+  "name": "@haulbook/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Haul Book web app — Next.js 15 App Router frontend (port 3100).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "NODE_ENV=production next build",
+    "start": "next start -p 3100",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@haulbook/shared": "file:../../packages/shared",
+    "lucide-react": "^0.474.0",
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@types/node": "^22.13.14",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.30.0",
+    "eslint-config-next": "^15.3.0",
+    "postcss": "^8.5.23",
+    "prettier": "^3.4.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "minimatch@^10.0.0": "^11.0.1"
+  }
+}

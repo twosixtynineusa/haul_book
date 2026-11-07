@@ -1,0 +1,46 @@
+# Dependencies (in Docker volumes; these only appear as empty mount points)
+node_modules/
+
+# Builds
+.next/
+dist/
+*.tsbuildinfo
+
+# Your settings (.env.example is the template)
+.env
+.env.local
+.env.*.local
+
+# Your data: converted files, the watched input folder, database backups
+# (defaults for OUTPUT_DIR / INPUT_DIR in .env, and `make db-backup`)
+output/
+input/
+backup-*.sql
+
+# Real ELD / mileage exports, screenshots and notes kept next to the project.
+# Customer data never goes into the repo; test fixtures live in apps/api/test/fixtures/.
+/*.csv
+/*.xls
+/*.xlsx
+/*.png
+/*.txt
+/New folder/
+/samples/
+
+# Tests
+coverage/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Claude Code local files
+.claude/scratch/
+.claude/*.local.json
