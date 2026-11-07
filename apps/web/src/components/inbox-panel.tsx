@@ -30,7 +30,14 @@ import {
   scanInbox,
 } from '@/lib/api';
 import { formatDateTime, plural } from '@/lib/format';
-import { shownValue, sourceSwitchText, toChoices, unitsFor, type SourceDraft } from '@/lib/sources';
+import {
+  formatChoiceText,
+  shownValue,
+  sourceSwitchText,
+  toChoices,
+  unitsFor,
+  type SourceDraft,
+} from '@/lib/sources';
 import { SourceSwitch, fieldClass } from './sources-panel';
 import { Alert, Button, Card, cx } from './ui';
 
@@ -141,7 +148,9 @@ function PendingRow({
                 }
                 className={cx(fieldClass(needs.has('format')), 'mt-1')}
               >
-                <option value="">Not recognised — choose…</option>
+                <option value="">
+                  {entry.formatOptions.length ? 'Pick the source…' : 'Not recognised — choose…'}
+                </option>
                 {SOURCE_FORMATS.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.label}
@@ -191,6 +200,9 @@ function PendingRow({
                 .join(', ')}
               .{needs.has('company') && ' Tip: drop files in a sub-folder named after the company.'}
             </p>
+          )}
+          {needs.has('format') && entry.formatOptions.length > 0 && (
+            <p className="mt-2 text-xs text-warning">{formatChoiceText(entry.formatOptions)}</p>
           )}
           {needs.has('source') && (
             <SourceSwitch

@@ -1,0 +1,12 @@
+IFTA Mileage By State
+Summary of total mileage by state for all equipment
+Carrier: ACME TRUCKING LLC
+Period: 2026/10/01 - 2026/10/31
+Report Generated: 2026/11/07 9:15:30 am
+Vehicle,Name,Make,Model,Year
+1FAKEVIN0LJ123456,7,Freightliner,Cascadia,2019
+State,Miles
+AR,412.48
+MO,388.5
+OK,1204.55
+TX,2316.07

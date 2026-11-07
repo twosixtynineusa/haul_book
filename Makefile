@@ -10,16 +10,21 @@
 
 COMPOSE := docker compose
 
+# Windows, without WSL: GNU make run inside Git Bash (README -> "Windows"). Recipes need
+# Git Bash's POSIX shell; from cmd, make.bat in this folder relaunches make in Git Bash.
+# This check comes before any $(shell ...): cmd has no printf, and the error message stays
+# plain ASCII because cmd's code page garbles anything else. Inside WSL, OS isn't set and
+# all of this is skipped: that's plain Linux.
+ifeq ($(OS),Windows_NT)
+  ifndef MSYSTEM
+    $(error This make needs Git Bash. From cmd in this folder, "make" runs make.bat, which starts it in Git Bash for you; from PowerShell, type .\make instead. Or open Git Bash yourself. See README.md, section Windows)
+  endif
+endif
+
 CR := $(shell printf '\r')
 HASH := $(shell printf '\043')
 
-# Windows, without WSL: GNU make run from Git Bash (README → "Windows"). Recipes need
-# Git Bash's POSIX shell, so PowerShell and cmd are refused. Inside WSL, OS isn't set
-# and this is all skipped: that's plain Linux.
 ifeq ($(OS),Windows_NT)
-  ifndef MSYSTEM
-    $(error On Windows, run make from Git Bash (or a WSL Ubuntu terminal), not PowerShell or cmd. See README.md → "Windows")
-  endif
   # Git Bash rewrites arguments that look like paths (/workspace → C:/Program Files/Git/workspace)
   # before docker sees them. Turn that off for every recipe.
   export MSYS_NO_PATHCONV := 1

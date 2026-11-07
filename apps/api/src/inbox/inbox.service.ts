@@ -292,7 +292,13 @@ export class InboxService implements OnModuleInit {
       }
     }
 
-    const resolved = { format: source.format, company: source.company, unit: source.unit, sha256 };
+    const resolved = {
+      format: source.format,
+      formatOptions: source.formatOptions,
+      company: source.company,
+      unit: source.unit,
+      sha256,
+    };
     if (!preview.ready) {
       const needsInput = source.needs.length > 0 && !source.error;
       return this.prisma.inboxFile.update({
@@ -427,6 +433,9 @@ export function toEntry(r: InboxFile): InboxEntry {
     name: r.name,
     status: r.status,
     format: format.success ? format.data : null,
+    formatOptions: r.formatOptions.filter(
+      (s) => SourceFormatIdSchema.safeParse(s).success,
+    ) as InboxEntry['formatOptions'],
     company: r.company ?? r.folderCompany,
     unit: r.unit,
     needs: r.needs.filter((n) => SourceNeedSchema.safeParse(n).success) as InboxEntry['needs'],

@@ -34,6 +34,8 @@ export const InboxEntrySchema = z.object({
   name: z.string(),
   status: InboxStatusSchema,
   format: SourceFormatIdSchema.nullable(),
+  /** When `needs` has `format` because several sources share this file's layout: the candidates. */
+  formatOptions: z.array(SourceFormatIdSchema),
   company: z.string().nullable(),
   unit: z.string().nullable(),
   needs: z.array(SourceNeedSchema),

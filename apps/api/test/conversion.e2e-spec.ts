@@ -121,7 +121,7 @@ describe('Conversions (e2e)', () => {
       xlsx,
     ).expect(200);
     expect(picked.body.files[0]).toMatchObject({ format: 'motive', formatDetected: false });
-    expect(picked.body.files[0].error).toMatch(/Motive Fleet files can't be converted yet/);
+    expect(picked.body.files[0].error).toMatch(/Motive files can't be converted yet/);
 
     const renamed = await post(
       '/api/v1/conversions/preview',
@@ -194,11 +194,11 @@ describe('Conversions (e2e)', () => {
 
   it('holds a known company’s file from a new source until the user confirms it', async () => {
     const company = 'SWITCH TEST LLC';
-    // As if its earlier files had all come from EZ Logs.
+    // As if its earlier files had all come from EZLogz.
     companies.saved.set(companyKey(company), {
       name: company,
       units: new Set(['22']),
-      sources: new Set(['ez-logs']),
+      sources: new Set(['ezlogz']),
     });
 
     const held = await post('/api/v1/conversions/preview', [{ company }]).expect(200);
@@ -207,7 +207,7 @@ describe('Conversions (e2e)', () => {
     expect(preview.files[0]).toMatchObject({
       format: 'wialon',
       needs: ['source'],
-      knownSources: ['ez-logs'],
+      knownSources: ['ezlogz'],
     });
     const refused = await post('/api/v1/conversions', [{ company }]).expect(400);
     expect(refused.body.message).toContain(
@@ -215,13 +215,54 @@ describe('Conversions (e2e)', () => {
     );
 
     await post('/api/v1/conversions', [{ company, confirmSource: true }]).expect(201);
-    expect([...companies.saved.get(companyKey(company))!.sources]).toEqual(['ez-logs', 'wialon']);
+    expect([...companies.saved.get(companyKey(company))!.sources]).toEqual(['ezlogz', 'wialon']);
 
     // Approved now: the next Wialon file for the company goes straight through.
     const next = await post('/api/v1/conversions/preview', [{ company }]).expect(200);
     expect(next.body).toMatchObject({
       ready: true,
       files: [expect.objectContaining({ needs: [] })],
+    });
+  });
+
+  it('converts an IFTA Mileage By State export with company and unit from the file', async () => {
+    const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
+    const file: [Buffer, string][] = [[fixture(name), name]];
+    // BELLAMSP-ANIR and HOS247 export this exact layout, and ACME has only used Wialon:
+    // nothing says which, so the user picks.
+    const held = await post('/api/v1/conversions/preview', [], file).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: null,
+      formatOptions: ['bellamsp-anir', 'hos247'],
+      company: 'ACME TRUCKING LLC',
+      needs: ['format'],
+    });
+
+    // Picked; and as ACME was converted from Wialon before, the new source is confirmed too.
+    const choice = [{ format: 'bellamsp-anir' as const, confirmSource: true }];
+    const res = await post('/api/v1/conversions', choice, file).expect(201);
+    const result = ConversionResultSchema.parse(res.body);
+    expect(result.files[0]).toMatchObject({
+      format: 'bellamsp-anir',
+      formatDetected: false,
+      company: 'ACME TRUCKING LLC',
+      companyDetected: true,
+      unit: '7',
+      unitDetected: true,
+      needs: [],
+    });
+    expect(result.outputs.map((o) => o.name)).toEqual(['ACME-TRUCKING-LLC_unit-7_2026-10.csv']);
+    expect(fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8')).toBe(
+      fixture('promiles_expected_ifta_by_state_unit7_oct2026.csv').toString('utf8'),
+    );
+
+    // From now on ACME's files in this layout are BELLAMSP-ANIR without asking.
+    const next = await post('/api/v1/conversions/preview', [], file).expect(200);
+    expect(next.body.files[0]).toMatchObject({
+      format: 'bellamsp-anir',
+      formatDetected: true,
+      formatOptions: [],
+      needs: [],
     });
   });
 

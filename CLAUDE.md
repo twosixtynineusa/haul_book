@@ -3,8 +3,8 @@
 Instructions for AI agents working in this repo. Read before editing.
 
 ## What this is
-A local, single-user portal: ELD/telematics mileage reports (Wialon built; EZ Logs, Motive Fleet,
-Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
+A local, single-user portal: ELD/telematics mileage reports (Wialon, BELLAMSP-ANIR and HOS247 built;
+EZLogz, Motive, Swift and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
 unit #, saved to a host folder (`OUTPUT_DIR` in `.env`) and downloadable. Reports dropped in the
 watched input folder (`INPUT_DIR`) convert automatically via a BullMQ worker. The saved company →
 unit list and the input-folder inbox live in Postgres 18 (Prisma). A Companies tab manages the
@@ -14,7 +14,8 @@ and dev rules: [Tech_Stack.md](Tech_Stack.md). File formats: [docs/data-contract
 ```
 packages/shared/   @haulbook/shared — Zod HTTP contracts + constants (build first; apps use dist/)
 apps/api/          NestJS:
-  src/conversion/importers/   one Importer per source format (detect + read) — wialon.ts, placeholders.ts
+  src/conversion/importers/   one Importer per source format (detect + read) — wialon.ts,
+                              ifta-mileage-by-state.ts (BELLAMSP-ANIR + HOS247), placeholders.ts
   src/conversion/promiles.ts  ProMiles writer (pure): trucks → one CSV per company
   src/conversion/conversion.service.ts  detect → read → company/unit → preview / save + name files
   src/companies/              companies + trucks (Prisma): list, edit, merge, approved sources (/api/v1/companies)
@@ -53,7 +54,9 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   - Quote every host path (Windows paths have spaces), and pass host paths to docker as
     `$(ROOT)` / `*_DIR_ABS`, never `$(CURDIR)`/`$(pwd)`. On Windows they're `C:/…` (`host_path`).
   - Keep `MSYS_NO_PATHCONV`, `.gitattributes` (LF, byte-exact fixtures) and polling watchers.
-  - Never add a PowerShell twin of the Makefile.
+  - Never add a PowerShell twin of the Makefile. `make.bat` (CRLF) only relaunches `make` in Git
+    Bash; keep all logic in the Makefile. The Windows guard must stay before any `$(shell …)`
+    and its message plain ASCII.
 - **Never `git commit` / `git push` unless explicitly asked in the current turn.**
 - **Public repo, MIT.** Never commit customer data: real ELD exports, converted files, `.env`,
   database backups (all git-ignored; see `.gitignore`). Test fixtures must be fictional or
@@ -74,6 +77,9 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   waits (portal and input folder alike) until the user sends `confirmSource`, which converts it
   and approves the format. Never convert a source switch silently. A company with no approved
   sources yet (added by hand) takes whatever converts first.
+- **Shared layouts:** when several sources export the same layout, `detectFormats` returns them
+  all and the file gets `formatOptions`. The company's approved source settles it when it's exactly
+  one of them; otherwise it `needs: format`. Never silently pick the first match.
 - Companies match case/spacing-insensitively (`companyKey`); odometers are keyed per truck
   (`truckKey(company, unit)`) because unit #s repeat across companies.
 

@@ -21,8 +21,11 @@ Everything runs locally in Docker: nothing is uploaded anywhere, and there is no
 | Source system | Status |
 |---|---|
 | **Wialon**: IFTA Single Unit Mileage Report (CSV) | ✅ supported: unit # from the file name, company picked or typed |
-| **EZ Logs** | 🕒 planned (listed in the picker, see [ROADMAP](ROADMAP.md)) |
-| **Motive Fleet** | 🕒 planned |
+| **BELLAMSP-ANIR**: IFTA Mileage By State (CSV) | ✅ supported: company and unit # read from the file |
+| **EZLogz** | 🕒 planned (listed in the picker, see [ROADMAP](ROADMAP.md)) |
+| **HOS247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as BELLAMSP-ANIR, so the company's source decides, or you pick |
+| **Motive** | 🕒 planned |
+| **Swift** | 🕒 planned |
 | **Vista ELD** | 🕒 planned |
 
 Sample exports from the planned systems are welcome. See [Contributing](#contributing).
@@ -145,8 +148,10 @@ commands.
 5. Open <http://localhost:3100> in your browser. To use folders of your own for reports and
    converted files, see [Configure the folders](#configure-the-folders).
 
-Run every `make` command from Git Bash. From PowerShell or cmd, `make` stops with a message
-pointing here.
+**Command Prompt (cmd) and PowerShell work too.** In the project folder, `make <target>` in cmd (or
+`.\make <target>` in PowerShell) runs `make.bat`, which starts the same `make` inside Git Bash for
+you. Git for Windows and GNU make from steps 2 and 3 are still needed. For targets that take
+quoted values, such as `make sql Q="…"`, use Git Bash directly.
 
 #### B. WSL 2 (Ubuntu)
 
@@ -214,6 +219,10 @@ path; your user folder is shared by default.
 1. **Add mileage reports.** Drop one or more CSV or Excel exports on the portal. For Wialon, run
    the **IFTA Single Unit Mileage Report** and export it as CSV, keeping Wialon's file name,
    because the unit # is read from it (`22_IFTA_Single_Unit_Mileage_Report_….csv` → unit 22).
+   For BELLAMSP-ANIR or HOS247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
+   carrier and unit # are read from the file, and miles are rounded to whole miles per state.
+   Both systems export the same layout: a company's first file asks which one it came from, and
+   later files for that company use the same answer.
 2. **Company & unit.** Each file shows its source format (detected, or picked from a dropdown) and
    its company and unit #. Fields read from the file are marked; otherwise pick from the saved
    list or type a new one. New companies and units are saved when you convert. "Use for all
@@ -299,8 +308,10 @@ You can also approve or remove sources on the Companies tab.
 - **Port already in use:** set `WEB_PORT` / `API_PORT` / `DB_PORT` in `.env`, then `make restart`.
 - **`make ps` shows containers restarting after Docker was restarted:** run `make down`, then
   `make up`.
-- **Windows: `make` says to use Git Bash:** you ran it from PowerShell or cmd. Open **Git Bash**
-  (or your WSL Ubuntu terminal) and run it there.
+- **Windows: `make` says "This make needs Git Bash":** you ran `make` in PowerShell, or outside the
+  project folder. In PowerShell type `.\make <target>` in the project folder, or use cmd or Git
+  Bash. If `make.bat` says Git Bash or GNU make wasn't found, install them (Setup, steps A.2 and
+  A.3) and open a new window.
 - **Windows: `make: command not found` in Git Bash:** close Git Bash and open a new window after
   installing make. If it's still missing, run `winget install -e --id ezwinports.make` again.
 - **Windows: `docker` not found, or "cannot connect to the Docker daemon":** start Docker

@@ -28,7 +28,7 @@ import { CompaniesService, type RecordEntry } from '../companies/companies.servi
 import { handToHostUser } from '../common/host-files';
 import { env } from '../config/env';
 import { ConversionError, type SourceReport, type UploadedFile } from './common';
-import { IMPORTERS, detectFormat } from './importers';
+import { IMPORTERS, detectFormats } from './importers';
 import { writeProMiles, type CompanyOutput, type TruckReport } from './promiles';
 
 /** Names this service writes and is willing to serve back: no paths, no dotfiles. */
@@ -193,12 +193,13 @@ export class ConversionService implements OnModuleInit {
 
     for (const [i, file] of files.entries()) {
       const choice = choices[i] ?? {};
-      const detected = choice.format ? null : detectFormat(file);
-      const format = choice.format ?? detected;
+      const candidates = choice.format ? [] : detectFormats(file);
+      const format = choice.format ?? (candidates.length === 1 ? candidates[0] : null);
       const source: SourceFile = {
         name: file.name,
         format,
-        formatDetected: !choice.format && detected !== null,
+        formatDetected: !choice.format && format !== null,
+        formatOptions: candidates.length > 1 ? candidates : [],
         company: choice.company ? canonical(choice.company) : null,
         companyDetected: false,
         unit: choice.unit?.trim() ?? null,
@@ -210,19 +211,22 @@ export class ConversionService implements OnModuleInit {
       sources.push(source);
       reports.push(null);
 
-      if (!format) {
+      if (!format && candidates.length <= 1) {
         source.needs.push('format');
         continue;
       }
-      if (!sourceFormat(format).available) {
-        source.error = `${sourceFormat(format).label} files can't be converted yet — that importer is still to be built.`;
+      // Several sources share this layout: read it to learn the company; which source it
+      // is gets settled below.
+      const reader = format ?? candidates[0];
+      if (!sourceFormat(reader).available) {
+        source.error = `${sourceFormat(reader).label} files can't be converted yet — that importer is still to be built.`;
         continue;
       }
 
       const fileWarnings: string[] = [];
       let report;
       try {
-        report = IMPORTERS[format].read(file, fileWarnings);
+        report = IMPORTERS[reader].read(file, fileWarnings);
       } catch (e) {
         if (!(e instanceof ConversionError)) throw e;
         source.error = e.message;
@@ -255,6 +259,21 @@ export class ConversionService implements OnModuleInit {
     const approved = await this.companies.approvedSources(
       sources.filter((s, i) => s.company && reports[i]).map((s) => s.company!),
     );
+    // A layout several sources share: the one this company was converted from decides, when
+    // it's exactly one of them; otherwise the user picks.
+    for (const [i, s] of sources.entries()) {
+      if (!reports[i] || s.format || s.formatOptions.length === 0) continue;
+      const known = s.company ? (approved.get(companyKey(s.company)) ?? []) : [];
+      const used = s.formatOptions.filter((f) => known.includes(f));
+      if (used.length === 1) {
+        s.format = used[0];
+        s.formatDetected = true;
+        s.formatOptions = [];
+      } else {
+        s.formatDetected = false;
+        s.needs.unshift('format');
+      }
+    }
     for (const [i, s] of sources.entries()) {
       const known = s.company ? approved.get(companyKey(s.company)) : undefined;
       if (!reports[i] || !s.format || !known?.length || known.includes(s.format)) continue;

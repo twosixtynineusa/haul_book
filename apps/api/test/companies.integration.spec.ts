@@ -131,13 +131,13 @@ describeDb('Companies (Postgres integration)', () => {
       {
         company: 'acme',
         units: ['22'],
-        sources: ['ez-logs'],
-        activity: [{ unit: '22', source: 'ez-logs', periodEnd: day(9, 30) }],
+        sources: ['ezlogz'],
+        activity: [{ unit: '22', source: 'ezlogz', periodEnd: day(9, 30) }],
       },
     ]);
 
     expect(await companies.approvedSources(['ACME', 'Nobody'])).toEqual(
-      new Map([['acme', ['wialon', 'ez-logs']]]),
+      new Map([['acme', ['wialon', 'ezlogz']]]),
     );
     const [acme] = (await companies.list()).companies;
     expect(acme.trucks[0]).toMatchObject({
@@ -242,7 +242,7 @@ describeDb('Companies (Postgres integration)', () => {
         {
           company: 'Acme Trucking',
           units: ['22', '25'],
-          sources: ['ez-logs'],
+          sources: ['ezlogz'],
           odometers: [{ unit: '22', reading: 2000, asOf: day(10, 31) }],
         },
       ]);
@@ -258,7 +258,7 @@ describeDb('Companies (Postgres integration)', () => {
       expect(merged).toMatchObject({
         id: long.id,
         name: 'ACME TRUCKING LLC',
-        sources: ['wialon', 'ez-logs'],
+        sources: ['wialon', 'ezlogz'],
         phone: '555-0100',
       });
       expect(merged.trucks.map((t) => [t.unit, t.odometer])).toEqual([

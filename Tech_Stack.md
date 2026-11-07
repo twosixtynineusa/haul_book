@@ -96,7 +96,9 @@ To keep both working, the Makefile:
 - strips CRLF and quotes from `.env` values;
 - resolves folder paths in the shell so paths with spaces work;
 - uses POSIX shell only (Ubuntu's `/bin/sh` is dash);
-- refuses to run from PowerShell or cmd.
+- refuses to run outside Git Bash with a plain-ASCII message (checked before any `$(shell …)`,
+  since cmd has no `printf`). `make.bat` is a launcher that starts `make` in Git Bash, so
+  `make <target>` also works from cmd (`.\make` from PowerShell).
 
 `.gitattributes` forces LF line endings and keeps test fixtures byte-exact.
 

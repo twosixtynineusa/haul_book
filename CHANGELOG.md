@@ -2,6 +2,42 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — BELLAMSP-ANIR and HOS247 importers, every sample provider listed, make from cmd
+- **Source list = the providers with sample exports.** Wialon, **BELLAMSP-ANIR** and **HOS247** are
+  built; **EZLogz, Motive, Swift, Vista ELD** are placeholders (listed as coming soon). The `ez-logs`
+  placeholder id is now `ezlogz`, and "Motive Fleet" is "Motive" (nothing had been saved under them).
+- **BELLAMSP-ANIR and HOS247 importers: the "IFTA Mileage By State" CSV**
+  (`importers/ifta-mileage-by-state.ts`, docs/data-contracts.md §3). Both providers export this
+  identical layout, so one reader serves two separate sources.
+  - The company comes from the `Carrier:` line, the unit # from the vehicle row (or the file name).
+  - The `Period:` becomes one trip, with one leg per state in file order.
+  - Miles are rounded to whole miles (half up), and the exact sum is kept as the report's total.
+  - Warnings for a period longer than a month or several vehicles in one file.
+  - Converts to the same ProMiles TRIPSUMMARY2 file as Wialon, e.g.
+    `ACME-TRUCKING-LLC_unit-7_2026-10.csv`.
+  - The real BELLAMSP-ANIR and HOS247 samples (kept locally, not in the repo) convert without
+    warnings.
+- **Files several sources could be from.** Detection now returns every match (`detectFormats`).
+  - A file in a shared layout gets `formatOptions`.
+  - If its company was converted from exactly one of them before, that one is used.
+  - Otherwise it waits for the user to pick (portal and input folder), with "This layout is
+    exported by either BELLAMSP-ANIR or HOS247". The pick approves that source for the company,
+    so its next files go straight through.
+  - New inbox column `format_options` (migration `inbox_format_options`).
+- **Tests:**
+  - a made-up fixture in the exact format and a hand-derived golden ProMiles file;
+  - a spec for detection (both sources), reading, rounding, file-name fallback, CRLF, warnings
+    and six refusal cases;
+  - e2e: pick, then automatic for that company, plus the source-switch confirmation;
+  - inbox: a held file is picked as HOS247 and the company's next file converts on its own;
+  - web: the pick message.
+- **Windows: `make` works from cmd.** Running `make` in Command Prompt used to print
+  `CreateProcess(NULL, printf …) failed` twice and a garbled `ΓåÆ` in its stop message.
+  - The Windows check now comes before any `$(shell …)` and its message is plain ASCII.
+  - New `make.bat` (CRLF, kept that way by `.gitattributes`) starts the real `make` inside Git Bash
+    from cmd (`.\make` in PowerShell), switching the window to UTF-8 while it runs.
+  - All logic stays in the Makefile.
+
 ## 2026-11-07 — Made-up Wialon test fixture
 - **The real Wialon export is gone from the tests.** It was one real truck's October 2026
   route. `apps/api/test/fixtures/22_IFTA_Single_Unit_Mileage_Report_…csv` is now a made-up

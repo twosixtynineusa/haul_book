@@ -49,7 +49,7 @@ export function unitsFor(companies: Company[], company: string): string[] {
 
 /**
  * The warning for a file whose format is new for its company, e.g. "ACME LLC was
- * imported from Wialon until now; this file is from EZ Logs."
+ * imported from Wialon until now; this file is from EZLogz."
  */
 export function sourceSwitchText(
   company: string | null,
@@ -64,4 +64,12 @@ export function sourceSwitchText(
 /** True when the API says this file still needs something or can't be read. */
 export function needsAttention(file: SourceFile | undefined): boolean {
   return !!file && (file.needs.length > 0 || !!file.error);
+}
+
+/** For a file several sources export identically: "…either BELLAMSP-ANIR or HOS247 — pick which." */
+export function formatChoiceText(options: SourceFormatId[]): string {
+  const names = options.map(sourceName);
+  const list =
+    names.length === 2 ? `either ${names[0]} or ${names[1]}` : `one of ${names.join(', ')}`;
+  return `This layout is exported by ${list}, and nothing says which: pick the system it came from.`;
 }

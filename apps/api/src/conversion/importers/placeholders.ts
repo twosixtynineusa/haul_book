@@ -21,6 +21,7 @@ function placeholder(id: SourceFormatId): Importer {
   };
 }
 
-export const ezLogsImporter = placeholder('ez-logs');
+export const ezlogzImporter = placeholder('ezlogz');
 export const motiveImporter = placeholder('motive');
+export const swiftImporter = placeholder('swift');
 export const vistaEldImporter = placeholder('vista-eld');

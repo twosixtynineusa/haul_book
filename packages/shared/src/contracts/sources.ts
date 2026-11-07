@@ -7,12 +7,23 @@ import { z } from 'zod';
  */
 export const SOURCE_FORMATS = [
   { id: 'wialon', label: 'Wialon — IFTA Single Unit Mileage Report', available: true },
-  { id: 'ez-logs', label: 'EZ Logs', available: false },
-  { id: 'motive', label: 'Motive Fleet', available: false },
+  { id: 'bellamsp-anir', label: 'BELLAMSP-ANIR — IFTA Mileage By State', available: true },
+  { id: 'ezlogz', label: 'EZLogz', available: false },
+  { id: 'hos247', label: 'HOS247 — IFTA Mileage By State', available: true },
+  { id: 'motive', label: 'Motive', available: false },
+  { id: 'swift', label: 'Swift', available: false },
   { id: 'vista-eld', label: 'Vista ELD', available: false },
 ] as const;
 
-export const SourceFormatIdSchema = z.enum(['wialon', 'ez-logs', 'motive', 'vista-eld']);
+export const SourceFormatIdSchema = z.enum([
+  'wialon',
+  'bellamsp-anir',
+  'ezlogz',
+  'hos247',
+  'motive',
+  'swift',
+  'vista-eld',
+]);
 export type SourceFormatId = z.infer<typeof SourceFormatIdSchema>;
 
 export function sourceFormat(id: SourceFormatId) {
@@ -57,6 +68,12 @@ export const SourceFileSchema = z.object({
   format: SourceFormatIdSchema.nullable(),
   /** True when `format` came from auto-detection rather than the user's pick. */
   formatDetected: z.boolean(),
+  /**
+   * Several sources export this file's exact layout (BELLAMSP-ANIR and HOS247) and nothing
+   * settled which: the candidates, and `needs` has `format`. When the file's company was only
+   * ever converted from one of them, that one is used instead (`format` set, this empty).
+   */
+  formatOptions: z.array(SourceFormatIdSchema),
   company: z.string().nullable(),
   companyDetected: z.boolean(),
   unit: z.string().nullable(),

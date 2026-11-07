@@ -17,7 +17,14 @@ import {
   type SourceFormatId,
 } from '@haulbook/shared';
 import { formatBytes } from '@/lib/format';
-import { fileKey, shownValue, sourceSwitchText, unitsFor, type SourceDraft } from '@/lib/sources';
+import {
+  fileKey,
+  formatChoiceText,
+  shownValue,
+  sourceSwitchText,
+  unitsFor,
+  type SourceDraft,
+} from '@/lib/sources';
 import { buttonClass, cx } from './ui';
 
 const COMPANY_LIST_ID = 'saved-companies';
@@ -175,7 +182,11 @@ export function SourcesPanel({
                   className={cx(fieldClass(needs.has('format'), readOnly), 'mt-1')}
                 >
                   <option value="">
-                    {source && !source.format ? 'Not recognised — choose…' : 'Detect automatically'}
+                    {source && !source.format
+                      ? source.formatOptions.length
+                        ? 'Pick the source…'
+                        : 'Not recognised — choose…'
+                      : 'Detect automatically'}
                   </option>
                   {SOURCE_FORMATS.map((f) => (
                     <option key={f.id} value={f.id}>
@@ -242,7 +253,9 @@ export function SourcesPanel({
               (needs.has('format') || needs.has('company') || needs.has('unit')) && (
                 <p className="mt-2 text-xs text-warning">
                   {needs.has('format') &&
-                    'The format wasn’t recognised — choose which system this report came from. '}
+                    (source?.formatOptions.length
+                      ? `${formatChoiceText(source.formatOptions)} `
+                      : 'The format wasn’t recognised — choose which system this report came from. ')}
                   {needs.has('company') && 'Enter or pick the company these miles belong to. '}
                   {needs.has('unit') && 'The unit # isn’t in this file — enter or pick it.'}
                 </p>

@@ -9,3 +9,6 @@ apps/api/test/fixtures/** -text
 *.png binary
 *.xlsx binary
 *.xls binary
+
+# Windows batch files need CRLF to run reliably in cmd.
+*.bat text eol=crlf

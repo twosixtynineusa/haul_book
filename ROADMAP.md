@@ -6,29 +6,30 @@
 
 ## Next — source importers (one per ELD provider)
 
-The portal already lists these formats in its "Source format" picker as **coming soon**.
-Placeholder importers live in `apps/api/src/conversion/importers/placeholders.ts`. Each one
-needs a real sample export first (see MANUAL_TODO §B). To build one:
+The portal lists these formats in its "Source format" picker as **coming soon**. Placeholder
+importers live in `apps/api/src/conversion/importers/placeholders.ts`. Real sample exports for
+all of them are kept locally (git-ignored, MANUAL_TODO §B). To build one:
 
 1. Add `importers/<provider>.ts` implementing `Importer`:
    - `detect()` is a cheap, never-throwing check on the raw bytes (header row, sheet name, …).
-   - `read()` returns trips per month and state, plus the **company name and unit #** when the
-     file or its name carries them.
+   - `read()` returns trips per month (or per period) and state, plus the **company name and
+     unit #** when the file or its name carries them.
 2. Register it in `importers/index.ts` and set `available: true` in `SOURCE_FORMATS`
    (`packages/shared/src/contracts/sources.ts`).
-3. Add the sample to `apps/api/test/fixtures/` under its original name, plus a spec. Add a golden
-   ProMiles output once one has imported cleanly.
-4. Document the format in `docs/data-contracts.md` (contracts 3–5) and log it in CHANGELOG.
+3. Add a **made-up** export in the exact same format to `apps/api/test/fixtures/` (never the real
+   sample), a spec, and a hand-derived golden ProMiles file.
+4. Document the format in `docs/data-contracts.md` and log it in CHANGELOG.
 
-| Provider | Placeholder id | Known so far | To build |
+| Provider | Placeholder id | Sample format | To build |
 |---|---|---|---|
-| **EZ Logs** | `ez-logs` | nothing yet | Get a sample IFTA / state-mileage export (CSV or Excel). Find the columns for state, miles, dates, unit and company, then write detection and the reader. |
-| **Motive Fleet** (formerly KeepTruckin) | `motive` | nothing yet | Same. Motive's IFTA reports usually include the vehicle/unit and carrier name, so check that the company and unit can come from the file. |
-| **Vista ELD** | `vista-eld` | nothing yet | Same. |
+| **EZLogz** | `ezlogz` | CSV: `State,Miles`, full state names, `"788.4 mi"` | Find where the company, unit # and period are (file name or header lines), then detection and the reader. |
+| **Motive** | `motive` | CSVs: `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`), `trip_reports_detail_by_vehicle` | Pick which report to import (the summary looks closest), and find the company and period. |
+| **Swift** | `swift` | `IFTA_Report*.xls` (legacy Excel) | Needs an Excel reader first (below). |
+| **Vista ELD** | `vista-eld` | `IFTA_Report*.xls` (legacy Excel) | Same; check whether Swift and Vista share one layout. |
 
 - **Excel (.xlsx / .xls) reading:** uploads are already accepted; reading them needs a parser
-  library in the API (e.g. `exceljs` or SheetJS). Pick it when the first Excel-based provider is
-  built (prefer a maintained one), then `make lock` and `make ci`.
+  library in the API that handles legacy `.xls` (e.g. SheetJS). Pick it with the first Excel
+  provider (prefer a maintained one), then `make lock` and `make ci`.
 
 ## Next — portal
 

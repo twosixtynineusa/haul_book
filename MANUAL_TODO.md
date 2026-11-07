@@ -33,6 +33,9 @@
   "Imported: 1, Failures: 0" (a real export passed on 2026-11-06, so this is a formality).
 - [ ] Convert a Wialon report in the portal, pick the company it belongs to, and import the
   `<Company>_unit-22_2026-10.csv` it writes under that customer in FuelTaxOnline.
+- [ ] Convert a **BELLAMSP-ANIR** and a **HOS247** report and import each
+  into FuelTaxOnline under that customer. Confirm the whole-mile state legs import with
+  "Failures: 0" (the export has decimals; Haul Book rounds them).
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles
   imports one trip per month. Then drop two trucks' reports together and confirm both import.
 - [ ] **Windows:** on a Windows PC, follow README → Setup → Windows. Test both routes, neither of
@@ -44,3 +47,5 @@
   Each time, point `INPUT_DIR` / `OUTPUT_DIR` at folders under `C:\Users\<you>\…`, ideally with a
   space in the path. Confirm `make setup`, `make up` and `make ci` work, and that a file dropped in
   the input folder converts into the output folder. Note anything the README got wrong.
+  Also run `make` and `make up` from **cmd** in the project folder (it should start Git Bash via
+  `make.bat`), and `.\make help` from PowerShell.

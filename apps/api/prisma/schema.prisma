@@ -100,6 +100,8 @@ model InboxFile {
   error         String?
   /// When needs = source: the company's approved formats, for the warning.
   knownSources  String[]    @default([]) @map("known_sources")
+  /// When needs = format because several sources share the layout: the candidates.
+  formatOptions String[]    @default([]) @map("format_options")
   /// The user confirmed converting from a format new for this company.
   confirmSource Boolean     @default(false) @map("confirm_source")
   /// ProMiles file(s) written to OUTPUT_DIR.

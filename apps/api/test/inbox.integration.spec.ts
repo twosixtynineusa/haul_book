@@ -127,8 +127,8 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   });
 
   it('holds a company’s file from a new source until confirmed, then converts the rest', async () => {
-    // Its earlier files came from EZ Logs; this one is a Wialon export.
-    await companies.record([{ company: COMPANY, units: ['22'], sources: ['ez-logs'] }]);
+    // Its earlier files came from EZLogz; this one is a Wialon export.
+    await companies.record([{ company: COMPANY, units: ['22'], sources: ['ezlogz'] }]);
     drop(`${COMPANY}/${RAW_NAME}`);
     expect(await settle()).toMatchObject({ needsInput: 1, converted: 0 });
 
@@ -140,7 +140,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       company: COMPANY,
       format: 'wialon',
       needs: ['source'],
-      knownSources: ['ez-logs'],
+      knownSources: ['ezlogz'],
     });
     expect(fs.readdirSync(OUTPUT)).toEqual([]);
     expect(await inbox.scan()).toMatchObject({ converted: 0 }); // still waiting for the user
@@ -151,7 +151,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       .expect(200);
     expect(res.body).toMatchObject({ status: 'converted', needs: [] });
     expect(await companies.approvedSources([COMPANY])).toEqual(
-      new Map([[COMPANY.toLowerCase(), ['ez-logs', 'wialon']]]),
+      new Map([[COMPANY.toLowerCase(), ['ezlogz', 'wialon']]]),
     );
 
     // From now on the company's Wialon files convert without asking.
@@ -160,6 +160,37 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       Buffer.concat([RAW.bytes, Buffer.from('\r\n')]),
     );
     expect(await settle()).toMatchObject({ converted: 1, needsInput: 0 });
+  });
+
+  it('asks which source a shared-layout file is from, then remembers it for the company', async () => {
+    const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
+    drop(name, fixture(name));
+    expect(await settle()).toMatchObject({ needsInput: 1 });
+
+    const [held] = InboxListSchema.parse(
+      (await request(server()).get('/api/v1/inbox')).body,
+    ).pending;
+    expect(held).toMatchObject({
+      company: COMPANY, // from the file's Carrier line
+      unit: '7',
+      format: null,
+      formatOptions: ['bellamsp-anir', 'hos247'],
+      needs: ['format'],
+    });
+
+    const res = await request(server())
+      .patch(`/api/v1/inbox/${held.id}`)
+      .send({ format: 'hos247' })
+      .expect(200);
+    expect(res.body).toMatchObject({ status: 'converted', format: 'hos247', formatOptions: [] });
+
+    // The company is HOS247 now: its next file in this layout converts without asking.
+    drop(
+      name.replace('1794000000000', '1794000000001'),
+      Buffer.concat([fixture(name), Buffer.from('\n')]),
+    );
+    expect(await settle()).toMatchObject({ converted: 1, needsInput: 0 });
+    expect((await inbox.list()).recent[0]).toMatchObject({ status: 'converted', format: 'hos247' });
   });
 
   it('waits until a file stops changing before picking it up', async () => {
@@ -238,7 +269,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       .send({ format: 'motive' })
       .expect(200);
     expect(picked.body).toMatchObject({ status: 'failed' });
-    expect(picked.body.error).toMatch(/Motive Fleet files can't be converted yet/);
+    expect(picked.body.error).toMatch(/Motive files can't be converted yet/);
 
     await request(server()).post(`/api/v1/inbox/${motive.id}/dismiss`).expect(200);
     expect(fs.existsSync(path.join(INPUT, 'failed', 'motive-q4.xlsx'))).toBe(true);

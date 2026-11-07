@@ -17,9 +17,8 @@
 |---|---|---|---|
 | 1 | Wialon "IFTA Single Unit Mileage Report" export (CSV) | read in | `apps/api/src/conversion/importers/wialon.ts` |
 | 2 | ProMiles FuelTaxOnline TRIPSUMMARY2 import (CSV), one file per company | write out | `conversion/promiles.ts`; named + saved by `conversion.service.ts` |
-| 3 | EZ Logs mileage export | read in | *placeholder*: `importers/placeholders.ts` (ROADMAP) |
-| 4 | Motive Fleet IFTA export | read in | *placeholder*: `importers/placeholders.ts` (ROADMAP) |
-| 5 | Vista ELD mileage export | read in | *placeholder*: `importers/placeholders.ts` (ROADMAP) |
+| 3 | "IFTA Mileage By State" export (CSV): BELLAMSP-ANIR and HOS247 (same layout) | read in | `importers/ifta-mileage-by-state.ts` |
+| 4 | EZLogz · Motive · Swift · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
 
 **Format detection:** each uploaded file is offered to every built importer's `detect()` (cheap
 header sniffing on the raw bytes). The first match wins; no match means the portal asks the user
@@ -127,14 +126,69 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ---
 
-## 3–5. EZ Logs · Motive Fleet · Vista ELD — not yet specified  *(read in)*
+## 3. "IFTA Mileage By State" export — v1  *(read in)*
+
+- **Status (2026-11-07):** the real BELLAMSP-ANIR and HOS247 samples convert without warnings.
+  Importing a converted file into FuelTaxOnline is still to be confirmed (MANUAL_TODO §C).
+- **Sources:** **BELLAMSP-ANIR** (`bellamsp-anir`) and **HOS247** (`hos247`), two separate sources
+  that export this identical layout. Nothing in the file tells them apart, so:
+  - if the file's company (its `Carrier:`) was converted from exactly one of the two before,
+    that one is used;
+  - otherwise the file waits with `needs: format` and `formatOptions: [bellamsp-anir, hos247]`
+    (portal and input folder alike) until the user picks. That pick approves the source for
+    the company, so its next files in this layout go straight through.
+  - A company switching between these two can't be noticed from the file; pick the source by
+    hand for that file (choosing a source always wins over detection).
+- **File:** one vehicle and one period per file, named
+  `Vehicle-<unit #>-<last 6 of VIN>-mileage-report_<YYYYMMDD>-<YYYYMMDD>_<timestamp>.csv`.
+  Comma-separated, ASCII/UTF-8, LF line endings, no BOM, no final newline (CRLF is accepted).
+- **Layout** (fixture: `apps/api/test/fixtures/Vehicle-7-123456-mileage-report_…csv`, made up):
+
+  ```
+  IFTA Mileage By State
+  Summary of total mileage by state for all equipment
+  Carrier: ACME TRUCKING LLC
+  Period: 2026/10/01 - 2026/10/31
+  Report Generated: 2026/11/07 9:15:30 am
+  Vehicle,Name,Make,Model,Year
+  1FAKEVIN0LJ123456,7,Freightliner,Cascadia,2019
+  State,Miles
+  AR,412.48
+  MO,388.5
+  …
+  ```
+
+- **Detection:** the first line is `IFTA Mileage By State` and a `State,Miles` line follows
+  (matches both sources; see above).
+- **Company:** the `Carrier:` line. **Unit #:** the vehicle row's `Name`, else the file name's
+  `Vehicle-<unit #>-`. With several vehicle rows, the unit # is left for the user (warning).
+- **Trip:** the whole `Period:` is **one trip** (Begin/End Date = the period's first and last day).
+  This export has no per-month split, so a period longer than a month gets a warning.
+- **Legs:** one per state row, in file order (no per-state dates). States are 2-letter codes (full
+  names also accepted).
+  - **Miles are rounded to whole miles, half up** (`388.5` → `389`), as IFTA reports and the
+    Wialon file that imported cleanly use whole miles. The exact sum is kept as the report's
+    total for the review's cross-check.
+- **Can't convert:** no `Period:` line, an impossible date, a period that ends before it starts,
+  an unknown state, a state twice, an unreadable mileage, no state rows.
+- **Output:** contract 2, unchanged: e.g. `ACME-TRUCKING-LLC_unit-7_2026-10.csv`
+  (`apps/api/test/fixtures/promiles_expected_ifta_by_state_unit7_oct2026.csv`, hand-derived).
+
+---
+
+## 4. EZLogz · Motive · Swift · Vista ELD — not yet specified  *(read in)*
 
 - **Status:** placeholders. The portal lists them in the "Source format" picker (marked coming
   soon). They never auto-detect, and choosing one says the importer isn't built yet.
-- **Needed to specify each:** a real export (CSV or Excel) with its original file name. Record
-  the delimiter or sheet, the header, where the state, miles, dates, unit # and company name
-  live, the encoding, and how totals and sub-rows are laid out. Then follow ROADMAP.md → "Source
-  importers".
+- **Samples:** real exports for each are kept locally (git-ignored, never committed). Seen so
+  far:
+  - **EZLogz:** CSV, `State,Miles` with full state names and `"788.4 mi"`;
+  - **Motive:** CSVs `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`)
+    and `trip_reports_detail_by_vehicle`;
+  - **Swift** and **Vista ELD:** `IFTA_Report*.xls`, legacy Excel (needs an Excel reader).
+- **To specify each:** record the delimiter or sheet, the header, where the state, miles, dates,
+  unit # and company name live, the encoding, and how totals and sub-rows are laid out. Then
+  follow ROADMAP.md → "Source importers" with a made-up fixture in the same format.
 
 ---
 

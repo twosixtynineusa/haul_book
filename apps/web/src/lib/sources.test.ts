@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   fileKey,
+  formatChoiceText,
   needsAttention,
   shownValue,
   sourceSwitchText,
@@ -43,6 +44,7 @@ describe('sources', () => {
       companyDetected: false,
       unit: null,
       unitDetected: false,
+      formatOptions: [],
       needs: [],
       knownSources: [],
       error: null,
@@ -63,11 +65,19 @@ describe('source switches', () => {
   });
 
   it('says which source the company came from and which this file is', () => {
-    expect(sourceSwitchText('ACME TRUCKING LLC', 'ez-logs', ['wialon'])).toBe(
-      'ACME TRUCKING LLC was imported from Wialon until now; this file is from EZ Logs.',
+    expect(sourceSwitchText('ACME TRUCKING LLC', 'ezlogz', ['wialon'])).toBe(
+      'ACME TRUCKING LLC was imported from Wialon until now; this file is from EZLogz.',
     );
     expect(sourceSwitchText(null, null, ['wialon', 'motive'])).toBe(
-      'This company was imported from Wialon or Motive Fleet until now; this file is from a different source.',
+      'This company was imported from Wialon or Motive until now; this file is from a different source.',
+    );
+  });
+});
+
+describe('formatChoiceText', () => {
+  it('names the sources that share a layout', () => {
+    expect(formatChoiceText(['bellamsp-anir', 'hos247'])).toBe(
+      'This layout is exported by either BELLAMSP-ANIR or HOS247, and nothing says which: pick the system it came from.',
     );
   });
 });
