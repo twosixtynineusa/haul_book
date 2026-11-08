@@ -2,15 +2,20 @@ import {
   ApiErrorSchema,
   CompanyListSchema,
   CompanySchema,
+  HistoryListSchema,
   InboxEntrySchema,
   InboxListSchema,
   ConversionPreviewSchema,
   ConversionResultSchema,
   OutputListSchema,
+  TruckDetailSchema,
   type Company,
   type CompanyInput,
   type CompanyList,
   type CompanyUpdate,
+  type HistoryList,
+  type HistoryQuery,
+  type TruckDetail,
   type TruckInput,
   type TruckUpdate,
   type InboxEntry,
@@ -193,4 +198,24 @@ export async function scanInbox(): Promise<void> {
   const res = await fetch('/api/v1/inbox/scan', { method: 'POST' }).catch(() => null);
   if (!res?.ok)
     throw new ApiRequestError('Could not start a scan. Is the worker running? Try: make ps');
+}
+
+/** Converted reports, newest first; optionally one company's or one truck's. */
+export function listHistory(query: HistoryQuery = {}) {
+  const params = new URLSearchParams(
+    Object.entries(query)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, String(v)]),
+  );
+  const qs = params.size ? `?${params}` : '';
+  return request<HistoryList>(`/api/v1/history${qs}`, { method: 'GET' }, HistoryListSchema);
+}
+
+/** One truck, its company and every report converted for it. */
+export function getTruck(id: string) {
+  return request<TruckDetail>(
+    `/api/v1/trucks/${encodeURIComponent(id)}`,
+    { method: 'GET' },
+    TruckDetailSchema,
+  );
 }

@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowLeftRight,
+  CalendarRange,
   CheckCircle2,
   FileSpreadsheet,
   Loader2,
@@ -13,21 +14,25 @@ import {
   SOURCE_FORMATS,
   sourceName,
   type Company,
+  type Period,
   type SourceFile,
   type SourceFormatId,
 } from '@haulbook/shared';
 import { formatBytes } from '@/lib/format';
 import {
+  companyChoiceText,
+  companyOptions,
+  companyOriginLabel,
   fileKey,
   formatChoiceText,
+  periodText,
   shownValue,
   sourceSwitchText,
-  unitsFor,
+  unitOptions,
   type SourceDraft,
 } from '@/lib/sources';
+import { Combobox } from './combobox';
 import { buttonClass, cx } from './ui';
-
-const COMPANY_LIST_ID = 'saved-companies';
 
 export const fieldClass = (missing: boolean, readOnly?: boolean) =>
   cx(
@@ -37,8 +42,8 @@ export const fieldClass = (missing: boolean, readOnly?: boolean) =>
     readOnly && 'bg-muted text-muted-foreground',
   );
 
-export function Found({ show, children }: { show: boolean; children: string }) {
-  if (!show) return null;
+export function Found({ show, children }: { show: boolean; children: string | null }) {
+  if (!show || !children) return null;
   return (
     <span className="ml-1.5 rounded bg-success-bg px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-success">
       {children}
@@ -46,10 +51,106 @@ export function Found({ show, children }: { show: boolean; children: string }) {
   );
 }
 
+/** The source format picker: every source, the placeholders marked "coming soon". */
+export function FormatSelect({
+  value,
+  empty,
+  invalid,
+  readOnly,
+  onChange,
+}: {
+  value: SourceFormatId | '';
+  /** The blank entry's text. */
+  empty: string;
+  invalid: boolean;
+  readOnly?: boolean;
+  onChange: (format: SourceFormatId | undefined) => void;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={readOnly}
+      onChange={(e) => onChange((e.target.value || undefined) as SourceFormatId | undefined)}
+      className={cx(fieldClass(invalid, readOnly), 'mt-1')}
+    >
+      <option value="">{empty}</option>
+      {SOURCE_FORMATS.map((f) => (
+        <option key={f.id} value={f.id}>
+          {f.label}
+          {f.available ? '' : ' (coming soon)'}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /**
- * A known company's file from a source it hasn't been converted from before:
- * nothing converts until the user confirms the switch. Confirming approves that
- * source for the company, so its later files convert on their own.
+ * The dates a report with none of its own covers (Motive's distance summary). It becomes
+ * one trip, so it stays inside one quarter; the likely month is offered in one click.
+ */
+export function PeriodFields({
+  value,
+  suggested,
+  missing,
+  readOnly,
+  onChange,
+}: {
+  value: { begin: string; end: string };
+  suggested: Period | null;
+  missing: boolean;
+  readOnly?: boolean;
+  onChange: (period: { begin: string; end: string }) => void;
+}) {
+  const same = suggested && suggested.begin === value.begin && suggested.end === value.end;
+  return (
+    <div className="mt-3 rounded-md border border-dashed border-border p-3">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <CalendarRange className="size-3.5" aria-hidden />
+        Dates this report covers
+        <span className="font-normal">
+          — the file has none, so ProMiles gets one trip for this period (inside one quarter).
+        </span>
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="text-xs font-medium text-muted-foreground">
+          From
+          <input
+            type="date"
+            value={value.begin}
+            readOnly={readOnly}
+            onChange={(e) => onChange({ ...value, begin: e.target.value })}
+            className={cx(fieldClass(missing && !value.begin, readOnly), 'mt-1 w-auto')}
+          />
+        </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          To
+          <input
+            type="date"
+            value={value.end}
+            readOnly={readOnly}
+            onChange={(e) => onChange({ ...value, end: e.target.value })}
+            className={cx(fieldClass(missing && !value.end, readOnly), 'mt-1 w-auto')}
+          />
+        </label>
+        {suggested && !same && !readOnly && (
+          <button
+            type="button"
+            onClick={() => onChange(suggested)}
+            className={buttonClass('secondary', 'px-2.5 py-1.5 text-xs')}
+            title="The whole month before the file was exported"
+          >
+            Use {periodText(suggested)}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A known company's file in a format other than its approved source: nothing converts
+ * until the user confirms the switch. Confirming makes that format the company's one
+ * approved source (replacing the old one), so its later files convert on their own.
  */
 export function SourceSwitch({
   text,
@@ -86,10 +187,41 @@ export function SourceSwitch({
   );
 }
 
+/** What a waiting file still needs, in words. */
+export function NeedsText({
+  needs,
+  formatOptions,
+  companyOptions: owners,
+  unit,
+}: {
+  needs: Set<string>;
+  formatOptions: SourceFormatId[];
+  companyOptions: string[];
+  unit: string;
+}) {
+  if (!needs.has('format') && !needs.has('company') && !needs.has('unit') && !needs.has('period'))
+    return null;
+  return (
+    <p className="mt-2 text-xs text-warning">
+      {needs.has('format') &&
+        (formatOptions.length
+          ? `${formatChoiceText(formatOptions)} `
+          : 'The format wasn’t recognised — choose which system this report came from. ')}
+      {needs.has('company') &&
+        (owners.length > 1
+          ? `${companyChoiceText(unit, owners)} `
+          : 'Pick or type the company these miles belong to. ')}
+      {needs.has('unit') && 'The unit # isn’t in this file — pick or type it. '}
+      {needs.has('period') && 'Enter the dates this report covers.'}
+    </p>
+  );
+}
+
 /**
  * One row per dropped file: its source format (auto-detected, or picked from the
  * list when detection fails), and the company + unit # it belongs to — read from
- * the file when it carries them, otherwise typed or picked from the saved list.
+ * the file when it carries them, else matched from its unit #, otherwise picked from
+ * the saved lists or typed. A file with no dates also gets the period it covers.
  */
 export function SourcesPanel({
   files,
@@ -125,7 +257,7 @@ export function SourcesPanel({
         const unit = manyUnits ? source!.units.join(', ') : shownValue(draft.unit, source?.unit);
         const format = draft.format ?? source?.format ?? '';
         const needs = new Set(source?.needs ?? []);
-        const unitsListId = `saved-units-${i}`;
+        const period = draft.period ?? source?.period ?? { begin: '', end: '' };
         const status = !source
           ? 'checking'
           : source.error
@@ -171,50 +303,40 @@ export function SourcesPanel({
               )}
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)]">
+            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)]">
               <label className="block text-xs font-medium text-muted-foreground">
                 Source format
                 <Found show={!!source?.formatDetected && !draft.format}>detected</Found>
-                <select
+                <FormatSelect
                   value={format}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    onChange(key, { format: (e.target.value || undefined) as SourceFormatId })
-                  }
-                  className={cx(fieldClass(needs.has('format'), readOnly), 'mt-1')}
-                >
-                  <option value="">
-                    {source && !source.format
+                  readOnly={readOnly}
+                  invalid={needs.has('format')}
+                  empty={
+                    source && !source.format
                       ? source.formatOptions.length
                         ? 'Pick the source…'
                         : 'Not recognised — choose…'
-                      : 'Detect automatically'}
-                  </option>
-                  {SOURCE_FORMATS.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                      {f.available ? '' : ' (coming soon)'}
-                    </option>
-                  ))}
-                </select>
+                      : 'Detect automatically'
+                  }
+                  onChange={(f) => onChange(key, { format: f })}
+                />
               </label>
 
               <label className="block text-xs font-medium text-muted-foreground">
                 Company
-                <Found show={!!source?.companyDetected && draft.company === undefined}>
-                  from file
+                <Found show={draft.company === undefined}>
+                  {companyOriginLabel(source?.companyOrigin)}
                 </Found>
-                <input
-                  type="text"
-                  list={COMPANY_LIST_ID}
+                <Combobox
+                  className="mt-1"
                   value={company}
+                  options={companyOptions(companies, source?.companyOptions)}
                   readOnly={readOnly}
+                  invalid={needs.has('company')}
                   placeholder={
                     companies.length ? 'Pick or type a company' : 'Type the company name'
                   }
-                  onChange={(e) => onChange(key, { company: e.target.value })}
-                  aria-invalid={needs.has('company')}
-                  className={cx(fieldClass(needs.has('company'), readOnly), 'mt-1')}
+                  onChange={(value) => onChange(key, { company: value })}
                 />
                 {!readOnly && files.length > 1 && company.trim() && (
                   <button
@@ -232,42 +354,43 @@ export function SourcesPanel({
                 <Found show={!!source?.unitDetected && (manyUnits || draft.unit === undefined)}>
                   from file
                 </Found>
-                <input
-                  type="text"
-                  list={unitsListId}
+                <Combobox
+                  className="mt-1"
                   value={unit}
+                  options={unitOptions(companies, company)}
                   readOnly={readOnly || manyUnits}
+                  invalid={needs.has('unit')}
                   title={
                     manyUnits ? 'Each truck in this file converts with its own unit #' : undefined
                   }
                   placeholder="e.g. 22"
-                  onChange={(e) => onChange(key, { unit: e.target.value })}
-                  aria-invalid={needs.has('unit')}
-                  className={cx(fieldClass(needs.has('unit'), readOnly || manyUnits), 'mt-1')}
+                  onChange={(value) => onChange(key, { unit: value })}
                 />
-                <datalist id={unitsListId}>
-                  {unitsFor(companies, company).map((u) => (
-                    <option key={u} value={u} />
-                  ))}
-                </datalist>
               </label>
             </div>
 
+            {source && (source.period || needs.has('period')) && (
+              <PeriodFields
+                value={period}
+                suggested={source.suggestedPeriod}
+                missing={needs.has('period')}
+                readOnly={readOnly}
+                onChange={(p) => onChange(key, { period: p })}
+              />
+            )}
+
             {source?.error && <p className="mt-2 text-xs text-danger">{source.error}</p>}
-            {!source?.error &&
-              (needs.has('format') || needs.has('company') || needs.has('unit')) && (
-                <p className="mt-2 text-xs text-warning">
-                  {needs.has('format') &&
-                    (source?.formatOptions.length
-                      ? `${formatChoiceText(source.formatOptions)} `
-                      : 'The format wasn’t recognised — choose which system this report came from. ')}
-                  {needs.has('company') && 'Enter or pick the company these miles belong to. '}
-                  {needs.has('unit') && 'The unit # isn’t in this file — enter or pick it.'}
-                </p>
-              )}
+            {source && !source.error && (
+              <NeedsText
+                needs={needs}
+                formatOptions={source.formatOptions}
+                companyOptions={source.companyOptions}
+                unit={unit}
+              />
+            )}
             {source && needs.has('source') && (
               <SourceSwitch
-                text={sourceSwitchText(source.company, source.format, source.knownSources)}
+                text={sourceSwitchText(source.company, source.format, source.knownSource)}
                 format={source.format}
                 disabled={readOnly}
                 onConfirm={() => onChange(key, { confirmSource: true })}

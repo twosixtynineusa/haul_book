@@ -12,7 +12,8 @@ doesn't have to be retyped by hand.
   named by company, unit # and month, into an output folder of your choice. You can also download
   it from the portal.
 - It remembers your companies, trucks and each truck's last odometer reading, so the next month
-  needs less typing. A **Companies** tab manages them.
+  needs less typing. A **Companies** tab manages them, and a **History** tab logs every report
+  converted (dates, odometers, miles), with a page per truck.
 - If a company's files suddenly come from a different ELD system, it holds them and asks you
   first instead of importing silently.
 
@@ -23,12 +24,13 @@ Everything runs locally in Docker: nothing is uploaded anywhere, and there is no
 | **Wialon**: IFTA Single Unit Mileage Report (CSV) | ✅ supported: unit # from the file name, company picked or typed |
 | **Bellfam ELD**: IFTA Mileage By State (CSV) | ✅ supported: company and unit # read from the file |
 | **Ezlogz**: Mileage Report (CSV) | ✅ supported: unit # read from the file, company picked or typed |
-| **HOS247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as Bellfam ELD, so the company's source decides, or you pick |
+| **HOS 247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as Bellfam ELD, so the company's source decides, or you pick |
 | **Motive**: IFTA Trip Report, detail by vehicle (CSV) | ✅ supported: unit #s and odometers read from the file (several trucks per file are fine), company picked or typed |
-| **Swift ELD** | 🕒 planned |
-| **Vista ELD** | 🕒 planned |
+| **Motive**: Distance summary by vehicle (CSV) | ✅ supported: unit #s read from the file; it has no dates, so you give the period (the month before the export is offered) |
+| **Swift ELD**: IFTA Report (Excel .xls) | ✅ supported: company and unit #s read from the file (several trucks per file are fine) |
+| **Vista ELD**: IFTA Report (Excel .xls) | ✅ supported: same workbook as Swift ELD, so the company's source decides, or you pick |
 
-Sample exports from the planned systems are welcome. See [Contributing](#contributing).
+Sample exports from other ELD systems are welcome. See [Contributing](#contributing).
 
 ## Requirements
 
@@ -229,19 +231,30 @@ path; your user folder is shared by default.
 1. **Add mileage reports.** Drop one or more CSV or Excel exports on the portal. For Wialon, run
    the **IFTA Single Unit Mileage Report** and export it as CSV, keeping Wialon's file name,
    because the unit # is read from it (`22_IFTA_Single_Unit_Mileage_Report_….csv` → unit 22).
-   For Bellfam ELD or HOS247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
+   For Bellfam ELD or HOS 247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
    carrier and unit # are read from the file, and miles are rounded to whole miles per state.
    Both systems export the same layout: a company's first file asks which one it came from, and
    later files for that company use the same answer.
    For Ezlogz, export the **Mileage Report** CSV for one unit (any number of months); the unit #
    is read from the file, the company isn't in it, and each month becomes its own trip.
    For Motive, export the **IFTA trip report detail by vehicle** CSV
-   (`…trip_reports_detail_by_vehicle.csv`), not the distance summary, which has no dates. A file
-   may hold several trucks: each converts with its own unit # and its real odometer readings.
+   (`…trip_reports_detail_by_vehicle.csv`) or the **distance summary by vehicle**
+   (`…distance_summary_by_vehicle.csv`). Either may hold several trucks: each converts with its
+   own unit #. The trip report also carries real odometer readings and dates. The distance
+   summary has neither, so you enter the period it covers (inside one quarter); the month
+   before it was exported is offered in one click. It becomes one trip per truck for that period.
+   For Swift ELD or Vista ELD, export the **IFTA report** as Excel (`IFTA_Report.xls`). The
+   company and unit #s are read from its "All trucks" sheet, and each truck becomes one trip for
+   the report's period, miles rounded to whole miles per state. Both systems export the same
+   workbook: a company's first file asks which one it came from, and later files use that answer.
 2. **Company & unit.** Each file shows its source format (detected, or picked from a dropdown) and
-   its company and unit #. Fields read from the file are marked; otherwise pick from the saved
-   list or type a new one. New companies and units are saved when you convert. "Use for all
-   files" fills in one company for every file.
+   its company and unit #. Fields read from the file are marked. A file with no company is
+   matched **by its unit #** to the one saved company running that truck (marked "by unit #"),
+   and the company's approved source settles a layout two systems share. If the unit # is saved
+   under several companies, you pick which. The company and unit # fields are drop-down lists of
+   the saved ones (the arrow shows them all, typing narrows them), and you can type a new one.
+   New companies and units are saved when you convert. "Use for all files" fills in one company
+   for every file.
 3. **Review trips.** There is one trip per truck per month, with its period, states and miles. You
    get a warning if the state miles don't add up to the report's own total.
    - **Begin odometer** is optional. If you enter a truck's reading once, later months carry it
@@ -251,7 +264,7 @@ path; your user folder is shared by default.
      overrides the saved one. With nothing typed or saved, `1` is written: ProMiles requires a
      value, and `1` imports fine.
 4. **Convert & save.** The file is written to your output folder and listed in the **Output
-   folder** panel with a download link.
+   folder** panel with a download link. Each converted report is logged on the **History** tab.
 5. **Import into ProMiles.** In FuelTaxOnline, select that company as the customer, open
    **Import Data**, choose the file and upload it.
 
@@ -276,7 +289,8 @@ Inbox/
 - A file is picked up once it has stopped changing between two scans, so a file still being
   copied is never read.
 - Wialon files carry no company name. Drop them in a **subfolder named after the company**, or
-  the company is filled in when exactly **one saved company** has that unit #.
+  the company is filled in when exactly **one saved company** has that unit #. When several
+  do, the file waits and the portal asks which.
 - If something is missing, the file stays put and the portal's **Input folder** card asks for it.
   Fill it in and click **Convert**.
 - Converted sources move to `archive/<date>/`; nothing is ever deleted. Dropping the same file
@@ -296,17 +310,27 @@ company and unit # are added automatically, whether they were read from the file
   - **Delete** removes the company and its trucks. Converted files are never touched.
 - **Trucks:** unit #, VIN, plate and notes, plus the saved odometer, which you can correct. Each
   truck also shows when it was last converted, from which source, and through which date.
-- **Approved sources:** the ELD systems each company's files may come from.
+  **Click a unit #** to open the truck's page: its company and approved source, its details
+  (editable), what its reports add up to, and every report converted for it.
+- **Approved source:** the one ELD system a company's files come from. Picking another replaces
+  it.
 
-**Switching ELD providers:** a company's first converted file approves its source (for example
-Wialon). If a file for that company later arrives from a different source (for example EZ Logs),
+**Switching ELD providers:** a company has one approved source. Its first converted file
+approves that source (for example Wialon). If a file for that company later arrives from a different source (for example EZ Logs),
 it is **not converted automatically**:
 - a warning appears on the Dashboard: in the input folder card, or on the uploaded file;
 - the file waits until you click **Confirm**;
-- confirming converts it and approves the new source, so that company's later files from it
-  convert on their own.
+- confirming converts it and makes the new source the approved one, **replacing** the old, so
+  that company's later files from it convert on their own (and files from the old one now wait).
 
-You can also approve or remove sources on the Companies tab.
+You can also change the approved source on the Companies tab.
+
+### History tab
+
+Every report written to a ProMiles file, from an upload or the input folder, is logged: when,
+the company and unit #, the source and file names, the dates it covers, the odometer at its start
+and end, and its total miles. Open a row to see its trips (usually one per month); click the unit #
+to open the truck's page. Search by company, unit #, source, file name or state.
 
 ## Everyday commands
 
@@ -315,7 +339,7 @@ You can also approve or remove sources on the Companies tab.
 | `make up` / `make down` | Start / stop the portal (your data and files are kept) |
 | `make restart` | Apply `.env` changes |
 | `make logs` · `make logs-worker` | Follow the logs (everything · the input-folder worker) |
-| `make db-backup` / `make db-restore` | Save / restore the saved companies, trucks and inbox (`backup-*.sql`) |
+| `make db-backup` / `make db-restore` | Save / restore the saved companies, trucks, inbox and history (`backup-*.sql`) |
 | `make rebuild` | After `git pull`: rebuild images, reinstall dependencies, apply database changes |
 | `make update` | Pull the latest version and rebuild, **only if there is one**; otherwise just make sure the portal is up |
 | `make schedule-setup` / `make schedule-remove` | Run `make update` every day at 3 am / stop doing that |

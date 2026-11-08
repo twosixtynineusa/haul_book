@@ -15,6 +15,8 @@ import { configureApp } from '../src/app.setup';
 import { CompaniesService, type RecordEntry } from '../src/companies/companies.service';
 import type { SavedReading } from '../src/conversion/common';
 import { ConversionModule } from '../src/conversion/conversion.module';
+import { HistoryService, type HistoryRecord } from '../src/history/history.service';
+import { IFTA_REPORT_SAMPLE, iftaReport } from './helpers/ifta-report';
 import { RAW, RAW_NAME, fixture, month, state, wialonReport } from './helpers/wialon-report';
 
 const OUTPUT = process.env.OUTPUT_PATH as string;
@@ -23,7 +25,7 @@ const COMPANY = 'ACME TRUCKING LLC';
 
 /** In-memory stand-in for the Postgres-backed list (that one has its own integration spec). */
 class FakeCompanies {
-  saved = new Map<string, { name: string; units: Set<string>; sources: Set<string> }>();
+  saved = new Map<string, { name: string; units: Set<string>; source: string | null }>();
   async list() {
     return {
       companies: [...this.saved.values()].map((c) => ({ name: c.name, units: [...c.units] })),
@@ -34,22 +36,34 @@ class FakeCompanies {
     return new Map(known.map((n) => [companyKey(n), this.saved.get(companyKey(n))!.name]));
   }
   async approvedSources(names: string[]) {
-    const known = names.filter((n) => this.saved.has(companyKey(n)));
-    return new Map(known.map((n) => [companyKey(n), [...this.saved.get(companyKey(n))!.sources]]));
+    const known = names.filter((n) => this.saved.get(companyKey(n))?.source);
+    return new Map(known.map((n) => [companyKey(n), this.saved.get(companyKey(n))!.source!]));
+  }
+  async ownersOfUnits(units: string[]) {
+    const all = [...this.saved.values()];
+    return new Map(
+      units.map((u) => [
+        u,
+        all
+          .filter((c) => c.units.has(u))
+          .map((c) => c.name)
+          .sort(),
+      ]),
+    );
   }
   odometers = new Map<string, SavedReading>();
   async savedOdometers() {
     return this.odometers;
   }
   async record(entries: RecordEntry[]) {
-    for (const { company, units, odometers = [], sources = [] } of entries) {
+    for (const { company, units, odometers = [], source } of entries) {
       const c = this.saved.get(companyKey(company)) ?? {
         name: company,
         units: new Set<string>(),
-        sources: new Set<string>(),
+        source: null,
       };
       units.forEach((u) => c.units.add(u));
-      sources.forEach((s) => c.sources.add(s));
+      c.source = source ?? c.source;
       this.saved.set(companyKey(company), c);
       for (const { unit, ...reading } of odometers) {
         this.odometers.set(truckKey(company, unit), reading);
@@ -58,14 +72,35 @@ class FakeCompanies {
   }
 }
 
+/** A history trip over October 2026 with no odometer known. */
+const octoberTrip = (distance: number, states: string) => ({
+  beginDate: '2026-10-01',
+  endDate: '2026-10-31',
+  beginOdo: null,
+  endOdo: null,
+  distance,
+  states: states.split(','),
+});
+
+/** Collects what would be written to the history table. */
+class FakeHistory {
+  records: HistoryRecord[] = [];
+  async record(records: HistoryRecord[]) {
+    this.records.push(...records);
+  }
+}
+
 describe('Conversions (e2e)', () => {
   let app: INestApplication;
   const companies = new FakeCompanies();
+  const history = new FakeHistory();
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [ConversionModule] })
       .overrideProvider(CompaniesService)
       .useValue(companies)
+      .overrideProvider(HistoryService)
+      .useValue(history)
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
@@ -121,7 +156,7 @@ describe('Conversions (e2e)', () => {
       xlsx,
     ).expect(200);
     expect(picked.body.files[0]).toMatchObject({ format: 'swift', formatDetected: false });
-    expect(picked.body.files[0].error).toMatch(/Swift ELD files can't be converted yet/);
+    expect(picked.body.files[0].error).toMatch(/swift\.xlsx: can't be read \(not an Excel 97–2003/);
 
     const renamed = await post(
       '/api/v1/conversions/preview',
@@ -161,6 +196,50 @@ describe('Conversions (e2e)', () => {
     ).expect(201);
     expect(second.body.outputs[0].name).toBe('ACME-TRUCKING-LLC_unit-22_2026-10_2.csv');
     expect(second.body.trips[0]).toMatchObject({ company: COMPANY, beginOdo: '184310' });
+
+    // Each conversion is logged: the first with the placeholder (no odometer known), the
+    // second from the typed reading to where it ends.
+    const miles = second.body.trips[0].totalDistance;
+    expect(history.records.slice(-2)).toEqual([
+      expect.objectContaining({
+        company: COMPANY,
+        unit: '22',
+        origin: 'portal',
+        source: 'wialon',
+        sourceFile: RAW_NAME,
+        outputFile: 'ACME-TRUCKING-LLC_unit-22_2026-10.csv',
+        distanceUnit: 'M',
+        trips: [expect.objectContaining({ beginOdo: null, endOdo: null, distance: miles })],
+      }),
+      expect.objectContaining({
+        outputFile: 'ACME-TRUCKING-LLC_unit-22_2026-10_2.csv',
+        trips: [
+          {
+            beginDate: '2026-10-01',
+            endDate: '2026-10-31',
+            beginOdo: '184310',
+            endOdo: String(184310 + miles),
+            distance: miles,
+            states: second.body.trips[0].states,
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it('matches a file with no company to the one saved company running its unit #', async () => {
+    const res = await post('/api/v1/conversions/preview').expect(200);
+    expect(res.body.files[0]).toMatchObject({
+      format: 'wialon',
+      company: COMPANY,
+      companyOrigin: 'unit',
+      companyOptions: [],
+      unit: '22',
+      needs: [],
+    });
+    // A typed company still wins.
+    const typed = await post('/api/v1/conversions/preview', [{ company: 'NEW CO' }]).expect(200);
+    expect(typed.body.files[0]).toMatchObject({ company: 'NEW CO', companyOrigin: 'user' });
   });
 
   it('saves where a truck’s odometer ends and starts its next month there', async () => {
@@ -192,13 +271,13 @@ describe('Conversions (e2e)', () => {
     expect(preview.trips[0]).toMatchObject({ beginOdo: '1120', beginOdoIsPlaceholder: false });
   });
 
-  it('holds a known company’s file from a new source until the user confirms it', async () => {
+  it('holds a file from a source other than the company’s approved one until confirmed', async () => {
     const company = 'SWITCH TEST LLC';
-    // As if its earlier files had all come from Ezlogz.
+    // As if its earlier files had come from Ezlogz.
     companies.saved.set(companyKey(company), {
       name: company,
       units: new Set(['22']),
-      sources: new Set(['ezlogz']),
+      source: 'ezlogz',
     });
 
     const held = await post('/api/v1/conversions/preview', [{ company }]).expect(200);
@@ -207,15 +286,16 @@ describe('Conversions (e2e)', () => {
     expect(preview.files[0]).toMatchObject({
       format: 'wialon',
       needs: ['source'],
-      knownSources: ['ezlogz'],
+      knownSource: 'ezlogz',
     });
     const refused = await post('/api/v1/conversions', [{ company }]).expect(400);
     expect(refused.body.message).toContain(
-      'confirm converting it from a source new for this company',
+      "confirm converting it from a source other than the company's approved one",
     );
 
     await post('/api/v1/conversions', [{ company, confirmSource: true }]).expect(201);
-    expect([...companies.saved.get(companyKey(company))!.sources]).toEqual(['ezlogz', 'wialon']);
+    // Wialon replaces Ezlogz as the one approved source.
+    expect(companies.saved.get(companyKey(company))!.source).toBe('wialon');
 
     // Approved now: the next Wialon file for the company goes straight through.
     const next = await post('/api/v1/conversions/preview', [{ company }]).expect(200);
@@ -223,12 +303,58 @@ describe('Conversions (e2e)', () => {
       ready: true,
       files: [expect.objectContaining({ needs: [] })],
     });
+
+    // Unit 22 is now saved under two companies: a file with no company asks which.
+    const ambiguous = await post('/api/v1/conversions/preview').expect(200);
+    expect(ambiguous.body.files[0]).toMatchObject({
+      company: null,
+      companyOrigin: null,
+      companyOptions: [COMPANY, company],
+      needs: ['company'],
+    });
+  });
+
+  it('converts a Motive distance summary once the user gives the period it covers', async () => {
+    const company = 'SUMMARY TEST LLC';
+    const name = '1794000000-distance_summary_by_vehicle.csv';
+    const file: [Buffer, string][] = [[fixture(name), name]];
+    const held = await post('/api/v1/conversions/preview', [{ company }], file).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: 'motive',
+      units: ['12', 'Volvo 9'],
+      period: null,
+      // Exported on Nov 6, 2026: most likely October.
+      suggestedPeriod: { begin: '2026-10-01', end: '2026-10-31' },
+      needs: ['period'],
+    });
+    const refused = await post('/api/v1/conversions', [{ company }], file).expect(400);
+    expect(refused.body.message).toContain(`${name}: enter the dates it covers`);
+
+    const period = { begin: '2026-10-01', end: '2026-10-31' };
+    const res = await post('/api/v1/conversions', [{ company, period }], file).expect(201);
+    const result = ConversionResultSchema.parse(res.body);
+    expect(result.files[0]).toMatchObject({ period, needs: [] });
+    expect(result.outputs.map((o) => o.name)).toEqual([
+      'SUMMARY-TEST-LLC_units-12-Volvo-9_2026-10.csv',
+    ]);
+    expect(fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8')).toBe(
+      fixture('promiles_expected_motive_summary_2trucks_oct2026.csv').toString('utf8'),
+    );
+    expect(history.records.slice(-2).map((r) => [r.unit, r.source, r.trips])).toEqual([
+      ['12', 'motive', [octoberTrip(4872, 'ID,MT,WA')]],
+      ['Volvo 9', 'motive', [octoberTrip(2012, 'OR,TX,UT')]],
+    ]);
+
+    const quarter = { begin: '2026-09-01', end: '2026-10-31' };
+    const bad = await post('/api/v1/conversions/preview', [{ company, period: quarter }], file);
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toMatch(/sources\[0\.period\.end\]: The period must stay inside one/);
   });
 
   it('converts an IFTA Mileage By State export with company and unit from the file', async () => {
     const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
     const file: [Buffer, string][] = [[fixture(name), name]];
-    // Bellfam ELD and HOS247 export this exact layout, and ACME has only used Wialon:
+    // Bellfam ELD and HOS 247 export this exact layout, and ACME's approved source is Wialon:
     // nothing says which, so the user picks.
     const held = await post('/api/v1/conversions/preview', [], file).expect(200);
     expect(held.body.files[0]).toMatchObject({
@@ -246,7 +372,7 @@ describe('Conversions (e2e)', () => {
       format: 'bellamsp-anir',
       formatDetected: false,
       company: 'ACME TRUCKING LLC',
-      companyDetected: true,
+      companyOrigin: 'file',
       unit: '7',
       unitDetected: true,
       needs: [],
@@ -298,10 +424,45 @@ describe('Conversions (e2e)', () => {
     expect(companies.odometers.get(truckKey(COMPANY, '31'))?.reading).toBe(1206148);
   });
 
+  it('converts a Swift ELD / Vista ELD workbook once the user says which it is', async () => {
+    const report = iftaReport({ trucks: IFTA_REPORT_SAMPLE, company: 'VISTA TEST LLC' });
+    const file: [Buffer, string][] = [[report.bytes, report.name]];
+    // Both export this exact workbook, and the company is new: nothing says which.
+    const held = await post('/api/v1/conversions/preview', [], file).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: null,
+      formatOptions: ['swift', 'vista-eld'],
+      company: 'VISTA TEST LLC',
+      companyOrigin: 'file',
+      unit: '0412',
+      needs: ['format'],
+    });
+
+    const res = await post('/api/v1/conversions', [{ format: 'vista-eld' }], file).expect(201);
+    const result = ConversionResultSchema.parse(res.body);
+    expect(result.outputs.map((o) => o.name)).toEqual(['VISTA-TEST-LLC_unit-0412_2026-10.csv']);
+    expect(fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8')).toBe(
+      fixture('promiles_expected_ifta_report_unit0412_oct2026.csv').toString('utf8'),
+    );
+    expect(history.records.at(-1)).toMatchObject({ unit: '0412', source: 'vista-eld' });
+
+    // Vista ELD is the company's approved source now: its next workbook needs nothing.
+    const next = await post('/api/v1/conversions/preview', [], file).expect(200);
+    expect(next.body.files[0]).toMatchObject({
+      format: 'vista-eld',
+      formatDetected: true,
+      needs: [],
+    });
+  });
+
   it('writes one file per company and lets the user override the unit #', async () => {
     const res = await post(
       '/api/v1/conversions',
-      [{ company: 'XYZ FREIGHT LLC', unit: '1022' }, { company: COMPANY }],
+      // (ACME's approved source is Motive by now, so Wialon is confirmed as its new one.)
+      [
+        { company: 'XYZ FREIGHT LLC', unit: '1022' },
+        { company: COMPANY, confirmSource: true },
+      ],
       [
         [RAW.bytes, RAW_NAME],
         [RAW.bytes, RAW_NAME.replace('22_', '25_')],
@@ -316,7 +477,10 @@ describe('Conversions (e2e)', () => {
   it('reports cross-file problems in the preview instead of failing', async () => {
     const res = await post(
       '/api/v1/conversions/preview',
-      [{ company: COMPANY }, { company: COMPANY }],
+      [
+        { company: COMPANY, confirmSource: true },
+        { company: COMPANY, confirmSource: true },
+      ],
       [
         [RAW.bytes, RAW_NAME],
         [RAW.bytes, RAW_NAME.replace('05-16-23', '06-00-00')],

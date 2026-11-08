@@ -113,6 +113,10 @@ function startOf(trip: PeriodTrip): Date {
   return trip.period?.[0] ?? sortedLegs(trip)[0].begin;
 }
 
+function endOf(trip: PeriodTrip): Date {
+  return trip.period?.[1] ?? new Date(Math.max(...trip.legs.map((leg) => leg.end.getTime())));
+}
+
 /** Groups reports into companies → trucks, in upload order. */
 function groupTrucks(reports: TruckReport[], warnings: string[]): Map<string, Truck[]> {
   const companies = new Map<string, Truck[]>();
@@ -180,17 +184,21 @@ export function writeProMiles(
       const label = `${company} unit ${unit}`;
       truck.trips.sort((a, b) => startOf(a.trip).getTime() - startOf(b.trip).getTime());
 
-      // The same month for the same truck in two uploads would double-count miles.
-      const seen = new Map<string, string>();
+      // The same month for the same truck in two uploads would double-count miles. A trip can
+      // span several months (a distance summary over a quarter), so compare month ranges.
+      const seen = new Map<number, string>();
       for (const { trip, sourceFile } of truck.trips) {
-        const key = monthKey(startOf(trip));
-        const other = seen.get(key);
-        if (other) {
-          throw new ConversionError(
-            `${label}: ${key} is in more than one file (${other}, ${sourceFile})`,
-          );
+        const [from, to] = [monthIndex(startOf(trip)), monthIndex(endOf(trip))];
+        for (let month = from; month <= to; month++) {
+          const other = seen.get(month);
+          if (other) {
+            const key = monthKey(new Date(Date.UTC(Math.floor(month / 12), month % 12, 1)));
+            throw new ConversionError(
+              `${label}: ${key} is in more than one file (${other}, ${sourceFile})`,
+            );
+          }
+          seen.set(month, sourceFile);
         }
-        seen.set(key, sourceFile);
       }
 
       // A real reading carries forward: next period starts where this one ended. Without a

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { GitMerge, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import Link from 'next/link';
+import { GitMerge, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   SOURCE_FORMATS,
   sourceName,
@@ -71,7 +72,7 @@ const DETAIL_LABELS: Record<DetailField, string> = {
   notes: 'Notes',
 };
 
-/** One company, expanded: its details, approved sources, trucks, and merge / delete. */
+/** One company, expanded: its details, approved source, trucks, and merge / delete. */
 export function CompanyDetail({
   company,
   others,
@@ -89,7 +90,7 @@ export function CompanyDetail({
   return (
     <div className="space-y-6 border-t border-border px-4 py-4">
       <DetailsForm company={company} onSaved={onSaved} />
-      <SourcesEditor company={company} onSaved={onSaved} />
+      <SourceEditor company={company} onSaved={onSaved} />
       <TrucksTable company={company} onSaved={onSaved} />
       <DangerZone company={company} others={others} onDeleted={onDeleted} onMerged={onMerged} />
     </div>
@@ -171,59 +172,46 @@ function DetailsForm({ company, onSaved }: { company: Company; onSaved: (c: Comp
   );
 }
 
-function SourcesEditor({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+function SourceEditor({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
   const { busy, error, run } = useAction();
-  const save = async (sources: SourceFormatId[]) => {
-    const saved = await run(() => updateCompany(company.id, { sources }));
+  const save = async (source: SourceFormatId | null) => {
+    if (
+      source &&
+      company.source &&
+      !window.confirm(
+        `Replace ${sourceName(company.source)} with ${sourceName(source)} as ${company.name}'s ` +
+          `approved source? Its ${sourceName(company.source)} files will then wait for confirmation.`,
+      )
+    )
+      return;
+    const saved = await run(() => updateCompany(company.id, { source }));
     if (saved) onSaved(saved);
   };
-  const addable = SOURCE_FORMATS.filter((f) => !company.sources.includes(f.id));
 
   return (
-    <Section title="Approved sources">
+    <Section title="Approved source">
       <p className="text-xs text-muted-foreground">
-        Files from these sources convert automatically. A file from any other source waits on the
-        Dashboard until you confirm the switch, which adds the source here.
-        {company.sources.length === 0 && ' None yet: the next converted file’s source is approved.'}
+        A company has one approved source. Its files convert automatically; a file from any other
+        source waits on the Dashboard until you confirm the switch, which makes that source the
+        approved one instead.
+        {!company.source && ' None yet: the next converted file’s source is approved.'}
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        {company.sources.map((s) => (
-          <span
-            key={s}
-            className="inline-flex items-center gap-1 rounded-full bg-primary-soft py-1 pl-3 pr-1 text-xs font-medium text-primary"
-          >
-            {sourceName(s)}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void save(company.sources.filter((x) => x !== s))}
-              className="rounded-full p-0.5 hover:bg-primary/10"
-              aria-label={`Stop approving ${sourceName(s)}`}
-              title="Remove: its files will wait for confirmation again"
-            >
-              <X className="size-3.5" />
-            </button>
-          </span>
-        ))}
-        {addable.length > 0 && (
-          <select
-            value=""
-            disabled={busy}
-            onChange={(e) =>
-              e.target.value && void save([...company.sources, e.target.value as SourceFormatId])
-            }
-            className={cx(fieldClass(false), 'w-auto py-1 text-xs')}
-            aria-label="Approve another source"
-          >
-            <option value="">Approve a source…</option>
-            {addable.map((f) => (
-              <option key={f.id} value={f.id}>
-                {sourceName(f.id)}
-                {f.available ? '' : ' (coming soon)'}
-              </option>
-            ))}
-          </select>
-        )}
+        <select
+          value={company.source ?? ''}
+          disabled={busy}
+          onChange={(e) => void save((e.target.value || null) as SourceFormatId | null)}
+          className={cx(fieldClass(false), 'w-auto min-w-[16rem]')}
+          aria-label="Approved source"
+        >
+          <option value="">None yet — the next file’s source</option>
+          {SOURCE_FORMATS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label}
+              {f.available ? '' : ' (coming soon)'}
+            </option>
+          ))}
+        </select>
         {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />}
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
@@ -322,7 +310,15 @@ function TruckRow({
   };
   return (
     <tr className="border-b border-border align-top last:border-0">
-      <td className="py-2.5 pr-3 font-semibold">{truck.unit}</td>
+      <td className="whitespace-nowrap py-2.5 pr-3 font-semibold">
+        <Link
+          href={`/trucks/${truck.id}`}
+          className="text-primary hover:underline"
+          title="See this truck and its converted reports"
+        >
+          {truck.unit}
+        </Link>
+      </td>
       <td className="py-2.5 pr-3 font-mono text-xs">{truck.vin ?? '—'}</td>
       <td className="py-2.5 pr-3">{truck.plate ?? '—'}</td>
       <td className="py-2.5 pr-3 tabular-nums">
@@ -463,7 +459,7 @@ function DangerZone({
   const merge = async () => {
     if (!target) return;
     const ok = window.confirm(
-      `Merge ${company.name} into ${target.name}? Its trucks, odometers and approved sources ` +
+      `Merge ${company.name} into ${target.name}? Its trucks, odometers and conversion history ` +
         `move to ${target.name}, and ${company.name} is removed.`,
     );
     if (!ok) return;

@@ -13,14 +13,7 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-react';
-import {
-  SOURCE_FORMATS,
-  sourceName,
-  type Company,
-  type InboxEntry,
-  type InboxList,
-  type SourceFormatId,
-} from '@haulbook/shared';
+import { sourceName, type Company, type InboxEntry, type InboxList } from '@haulbook/shared';
 import {
   dismissInbox,
   downloadUrl,
@@ -31,14 +24,15 @@ import {
 } from '@/lib/api';
 import { formatDateTime, plural } from '@/lib/format';
 import {
-  formatChoiceText,
+  companyOptions,
   shownValue,
   sourceSwitchText,
   toChoices,
-  unitsFor,
+  unitOptions,
   type SourceDraft,
 } from '@/lib/sources';
-import { SourceSwitch, fieldClass } from './sources-panel';
+import { Combobox } from './combobox';
+import { FormatSelect, NeedsText, PeriodFields, SourceSwitch } from './sources-panel';
 import { Alert, Button, Card, cx } from './ui';
 
 /** How often the portal re-reads the inbox (the worker scans on its own schedule). */
@@ -91,8 +85,14 @@ function PendingRow({
   const manyUnits = entry.units.length > 1;
   const unit = manyUnits ? entry.units.join(', ') : shownValue(draft.unit, entry.unit);
   const format = draft.format ?? entry.format ?? '';
+  const period = draft.period ?? entry.period ?? { begin: '', end: '' };
   const needs = new Set(entry.needs);
-  const listId = `inbox-units-${entry.id}`;
+  const needsPeriod = needs.has('period') || !!entry.period;
+  const complete =
+    !!company.trim() &&
+    !!unit.trim() &&
+    !!format &&
+    (!needsPeriod || (!!period.begin && !!period.end));
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -113,7 +113,13 @@ function PendingRow({
       resolveInbox(
         entry.id,
         toChoices([
-          { format: format || undefined, company, unit: manyUnits ? '' : unit, confirmSource },
+          {
+            format: format || undefined,
+            company,
+            unit: manyUnits ? '' : unit,
+            period: needsPeriod ? period : undefined,
+            confirmSource,
+          },
         ])[0],
       ),
     );
@@ -139,82 +145,70 @@ function PendingRow({
 
       {actionable && (
         <>
-          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)]">
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)]">
             <label className="block text-xs font-medium text-muted-foreground">
               Source format
-              <select
+              <FormatSelect
                 value={format}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    format: (e.target.value || undefined) as SourceFormatId,
-                  }))
-                }
-                className={cx(fieldClass(needs.has('format')), 'mt-1')}
-              >
-                <option value="">
-                  {entry.formatOptions.length ? 'Pick the source…' : 'Not recognised — choose…'}
-                </option>
-                {SOURCE_FORMATS.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                    {f.available ? '' : ' (coming soon)'}
-                  </option>
-                ))}
-              </select>
+                invalid={needs.has('format')}
+                empty={entry.formatOptions.length ? 'Pick the source…' : 'Not recognised — choose…'}
+                onChange={(f) => setDraft((d) => ({ ...d, format: f }))}
+              />
             </label>
             <label className="block text-xs font-medium text-muted-foreground">
               Company
-              <input
-                type="text"
-                list="saved-companies"
+              <Combobox
+                className="mt-1"
                 value={company}
+                options={companyOptions(companies, entry.companyOptions)}
+                invalid={needs.has('company')}
                 placeholder={companies.length ? 'Pick or type a company' : 'Type the company name'}
-                onChange={(e) => setDraft((d) => ({ ...d, company: e.target.value }))}
-                aria-invalid={needs.has('company')}
-                className={cx(fieldClass(needs.has('company')), 'mt-1')}
+                onChange={(value) => setDraft((d) => ({ ...d, company: value }))}
               />
             </label>
             <label className="block text-xs font-medium text-muted-foreground">
               {manyUnits ? `${entry.units.length} trucks (from file)` : 'Unit #'}
-              <input
-                type="text"
-                list={listId}
+              <Combobox
+                className="mt-1"
                 value={unit}
+                options={unitOptions(companies, company)}
                 readOnly={manyUnits}
+                invalid={needs.has('unit')}
                 placeholder="e.g. 22"
-                onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
-                aria-invalid={needs.has('unit')}
-                className={cx(fieldClass(needs.has('unit'), manyUnits), 'mt-1')}
+                onChange={(value) => setDraft((d) => ({ ...d, unit: value }))}
               />
-              <datalist id={listId}>
-                {unitsFor(companies, company).map((u) => (
-                  <option key={u} value={u} />
-                ))}
-              </datalist>
             </label>
           </div>
 
-          {entry.error && <p className="mt-2 text-xs text-danger">{entry.error}</p>}
-          {!entry.error && needs.size > 0 && !onlySource && (
-            <p className="mt-2 text-xs text-warning">
-              Missing:{' '}
-              {[...needs]
-                .filter((n) => n !== 'source')
-                .map((n) => (n === 'unit' ? 'unit #' : n))
-                .join(', ')}
-              .{needs.has('company') && ' Tip: drop files in a sub-folder named after the company.'}
-            </p>
+          {needsPeriod && (
+            <PeriodFields
+              value={period}
+              suggested={entry.suggestedPeriod}
+              missing={needs.has('period')}
+              onChange={(p) => setDraft((d) => ({ ...d, period: p }))}
+            />
           )}
-          {needs.has('format') && entry.formatOptions.length > 0 && (
-            <p className="mt-2 text-xs text-warning">{formatChoiceText(entry.formatOptions)}</p>
+
+          {entry.error && <p className="mt-2 text-xs text-danger">{entry.error}</p>}
+          {!entry.error && (
+            <NeedsText
+              needs={needs}
+              formatOptions={entry.formatOptions}
+              companyOptions={entry.companyOptions}
+              unit={unit}
+            />
+          )}
+          {needs.has('company') && entry.companyOptions.length === 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tip: drop files in a sub-folder named after the company.
+            </p>
           )}
           {needs.has('source') && (
             <SourceSwitch
-              text={sourceSwitchText(entry.company, entry.format, entry.knownSources)}
+              text={sourceSwitchText(entry.company, entry.format, entry.knownSource)}
               format={entry.format}
               busy={busy}
-              disabled={!company.trim() || !unit.trim() || !format}
+              disabled={!complete}
               confirmLabel={`Confirm & convert${entry.format ? ` from ${sourceName(entry.format)}` : ''}`}
               onConfirm={() => convert(true)}
             />
@@ -222,10 +216,7 @@ function PendingRow({
           {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              onClick={() => convert()}
-              disabled={busy || onlySource || !company.trim() || !unit.trim() || !format}
-            >
+            <Button onClick={() => convert()} disabled={busy || onlySource || !complete}>
               {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
               Convert
             </Button>
@@ -255,7 +246,7 @@ function PendingRow({
 
 /**
  * The watched input folder: files the worker couldn't convert on its own wait
- * here for a format / company / unit #; recently processed files show where
+ * here for a format / company / unit # / period; recently processed files show where
  * their output and archived source went.
  */
 export function InboxPanel({
@@ -355,12 +346,13 @@ export function InboxPanel({
           <Alert tone="warning" title="A company is coming in from a different source">
             <ul className="list-inside list-disc">
               {switches.map((s) => (
-                <li key={s.id}>{sourceSwitchText(s.company, s.format, s.knownSources)}</li>
+                <li key={s.id}>{sourceSwitchText(s.company, s.format, s.knownSource)}</li>
               ))}
             </ul>
             <p>
-              These files wait below until you confirm. After that, the company&apos;s files from
-              the new source convert automatically.
+              These files wait below until you confirm. Confirming makes the new source the
+              company&apos;s approved one (it replaces the old), and its files from it then convert
+              automatically.
             </p>
           </Alert>
         </div>

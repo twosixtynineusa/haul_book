@@ -181,12 +181,6 @@ export function Portal() {
     <>
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="space-y-6">
-          {/* Shared by the company pickers in the inbox and the upload steps. */}
-          <datalist id="saved-companies">
-            {companies.map((c) => (
-              <option key={c.name} value={c.name} />
-            ))}
-          </datalist>
           <InboxPanel companies={companies} onChanged={refreshAfterInbox} />
           <Card title="Add mileage reports" step={1}>
             <Dropzone disabled={done || converting} onAdd={addFiles} />

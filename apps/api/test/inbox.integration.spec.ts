@@ -65,6 +65,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
 
   beforeEach(async () => {
     await prisma.inboxFile.deleteMany();
+    await prisma.conversion.deleteMany();
     await prisma.company.deleteMany();
     clear(INPUT);
     clear(OUTPUT);
@@ -102,9 +103,24 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     ]);
     // Added to the company list on its own, with Wialon approved and the truck's activity.
     const [saved] = (await companies.list()).companies;
-    expect(saved).toMatchObject({ name: COMPANY, sources: ['wialon'] });
+    expect(saved).toMatchObject({ name: COMPANY, source: 'wialon' });
     expect(saved.trucks).toEqual([
       expect.objectContaining({ unit: '22', lastSource: 'wialon', lastPeriodEnd: '2026-10-31' }),
+    ]);
+    // And logged in the history, linked to the company and truck.
+    const logged = await prisma.conversion.findMany();
+    expect(logged).toEqual([
+      expect.objectContaining({
+        companyId: saved.id,
+        unitId: saved.trucks[0].id,
+        companyName: COMPANY,
+        unitNumber: '22',
+        origin: 'inbox',
+        source: 'wialon',
+        sourceFile: RAW_NAME,
+        outputFile: output,
+        beginOdo: null,
+      }),
     ]);
   });
 
@@ -126,9 +142,9 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     expect([...saved.values()]).toEqual([{ reading: 8618, asOf: day(10, 31) }]);
   });
 
-  it('holds a company’s file from a new source until confirmed, then converts the rest', async () => {
-    // Its earlier files came from Ezlogz; this one is a Wialon export.
-    await companies.record([{ company: COMPANY, units: ['22'], sources: ['ezlogz'] }]);
+  it('holds a file from another source until confirmed, which replaces the approved one', async () => {
+    // Its approved source is Ezlogz; this one is a Wialon export.
+    await companies.record([{ company: COMPANY, units: ['22'], source: 'ezlogz' }]);
     drop(`${COMPANY}/${RAW_NAME}`);
     expect(await settle()).toMatchObject({ needsInput: 1, converted: 0 });
 
@@ -140,7 +156,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       company: COMPANY,
       format: 'wialon',
       needs: ['source'],
-      knownSources: ['ezlogz'],
+      knownSource: 'ezlogz',
     });
     expect(fs.readdirSync(OUTPUT)).toEqual([]);
     expect(await inbox.scan()).toMatchObject({ converted: 0 }); // still waiting for the user
@@ -151,7 +167,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       .expect(200);
     expect(res.body).toMatchObject({ status: 'converted', needs: [] });
     expect(await companies.approvedSources([COMPANY])).toEqual(
-      new Map([[COMPANY.toLowerCase(), ['ezlogz', 'wialon']]]),
+      new Map([[COMPANY.toLowerCase(), 'wialon']]),
     );
 
     // From now on the company's Wialon files convert without asking.
@@ -184,7 +200,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       .expect(200);
     expect(res.body).toMatchObject({ status: 'converted', format: 'hos247', formatOptions: [] });
 
-    // The company is HOS247 now: its next file in this layout converts without asking.
+    // The company is HOS 247 now: its next file in this layout converts without asking.
     drop(
       name.replace('1794000000000', '1794000000001'),
       Buffer.concat([fixture(name), Buffer.from('\n')]),
@@ -250,14 +266,50 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     await companies.record([{ company: 'XYZ FREIGHT LLC', units: ['22'] }]);
     drop(RAW_NAME.replace('05-16-23', '07-00-00'), Buffer.concat([RAW.bytes, Buffer.from('\r\n')]));
     expect(await settle()).toMatchObject({ needsInput: 1 });
+    const [held] = (await inbox.list()).pending;
+    expect(held).toMatchObject({
+      company: null,
+      companyOptions: [COMPANY, 'XYZ FREIGHT LLC'],
+      needs: ['company'],
+    });
+    const res = await request(server())
+      .patch(`/api/v1/inbox/${held.id}`)
+      .send({ company: 'XYZ FREIGHT LLC' })
+      .expect(200);
+    expect(res.body).toMatchObject({ status: 'converted', company: 'XYZ FREIGHT LLC' });
+  });
+
+  it('waits for the period of a Motive distance summary, offering the likely month', async () => {
+    const name = '1794000000-distance_summary_by_vehicle.csv';
+    drop(`${COMPANY}/${name}`, fixture(name));
+    expect(await settle()).toMatchObject({ needsInput: 1 });
+    const [held] = (await inbox.list()).pending;
+    expect(held).toMatchObject({
+      format: 'motive',
+      company: COMPANY,
+      units: ['12', 'Volvo 9'],
+      period: null,
+      suggestedPeriod: { begin: '2026-10-01', end: '2026-10-31' },
+      needs: ['period'],
+    });
+
+    const period = { begin: '2026-10-01', end: '2026-10-31' };
+    const res = await request(server())
+      .patch(`/api/v1/inbox/${held.id}`)
+      .send({ period })
+      .expect(200);
+    expect(res.body).toMatchObject({ status: 'converted', period, needs: [] });
+    expect(fs.readFileSync(path.join(OUTPUT, res.body.outputs[0]), 'utf8')).toBe(
+      fixture('promiles_expected_motive_summary_2trucks_oct2026.csv').toString('utf8'),
+    );
   });
 
   it('converts a Motive file holding two trucks for the one company running both', async () => {
     const name = '1794000000-trip_reports_detail_by_vehicle.csv';
     // XYZ also runs a unit 31, but only ACME runs both trucks in the file.
     await companies.record([
-      { company: COMPANY, units: ['Volvo 7', '31'], sources: ['motive'] },
-      { company: 'XYZ FREIGHT LLC', units: ['31'], sources: ['motive'] },
+      { company: COMPANY, units: ['Volvo 7', '31'], source: 'motive' },
+      { company: 'XYZ FREIGHT LLC', units: ['31'], source: 'motive' },
     ]);
     drop(name, fixture(name));
     expect(await settle()).toMatchObject({ converted: 1 });
@@ -281,14 +333,14 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       ['october.csv', 'needs_input', ['company', 'unit']],
     ]);
 
-    // Picking a "coming soon" format fails with the reason; dismiss moves it to failed/.
+    // Picking a format that can't read it fails with the reason; dismiss moves it to failed/.
     const [swift, october] = pending;
     const picked = await request(server())
       .patch(`/api/v1/inbox/${swift.id}`)
       .send({ format: 'swift' })
       .expect(200);
     expect(picked.body).toMatchObject({ status: 'failed' });
-    expect(picked.body.error).toMatch(/Swift ELD files can't be converted yet/);
+    expect(picked.body.error).toMatch(/can't be read \(not an Excel 97–2003/);
 
     await request(server()).post(`/api/v1/inbox/${swift.id}/dismiss`).expect(200);
     expect(fs.existsSync(path.join(INPUT, 'failed', 'excel-swift-q4.xlsx'))).toBe(true);

@@ -1,0 +1,8 @@
+###TRIPSUMMARY2,,,,,,,,,,,
+Unit#,Begin Date,End date,Begin Odo,D(istance) or O(dometer),M(iles) or K(ilometers),State,Distance or Odometer,Toll Distance,Empty(Y/N),Off Road(Y/N),"Permitting (None, IFTA, Mile, Both)"
+12,10/1/2026,10/31/2026,1,D,M,ID,787,0,n,n,
+,,,,,,MT,1481,0,n,n,
+,,,,,,WA,2604,0,n,n,
+Volvo 9,10/1/2026,10/31/2026,1,D,M,OR,739,0,n,n,
+,,,,,,TX,1260,0,n,n,
+,,,,,,UT,13,0,n,n,

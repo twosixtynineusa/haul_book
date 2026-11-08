@@ -7,11 +7,13 @@
 // A Unit is one truck, so it also holds the truck's last known odometer. Both are
 // also edited by hand on the portal's Companies tab (details, rename, merge, delete).
 //
-// Company.sources: the source formats (SourceFormatId) approved for the company.
-// The first conversion approves its format; a file in any other format waits for
-// the user to confirm the switch (owners move between ELD providers).
+// Company.source: the one source format (SourceFormatId) approved for the company.
+// The first conversion sets it; a file in any other format waits for the user to
+// confirm the switch (owners move between ELD providers), and confirming replaces it.
 //
 // InboxFile: one row per file found in the watched input folder (InboxService).
+//
+// Conversion: the history, one row per truck per source report written to a ProMiles file.
 
 generator client {
   provider = "prisma-client-js"
@@ -23,44 +25,46 @@ datasource db {
 }
 
 model Company {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   name        String
-  nameKey     String   @unique @map("name_key")
-  /// Approved source formats; empty = none yet (the next conversion's format is approved).
-  sources     String[] @default([])
-  dotNumber   String?  @map("dot_number")
-  iftaAccount String?  @map("ifta_account")
-  contactName String?  @map("contact_name")
+  nameKey     String       @unique @map("name_key")
+  /// Approved source format; null = none yet (the next conversion's format is approved).
+  source      String?
+  dotNumber   String?      @map("dot_number")
+  iftaAccount String?      @map("ifta_account")
+  contactName String?      @map("contact_name")
   phone       String?
   email       String?
   notes       String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
   units       Unit[]
+  conversions Conversion[]
 
   @@map("companies")
 }
 
 model Unit {
-  id              String    @id @default(cuid())
-  companyId       String    @map("company_id")
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id              String       @id @default(cuid())
+  companyId       String       @map("company_id")
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   number          String
   /// The truck's odometer at the end of its latest converted period (begin + miles).
   /// Only real readings are saved, never the placeholder `1`. The next conversion
   /// of a later period uses it as Begin Odo when none is typed.
-  odometer        Decimal?  @db.Decimal(12, 1)
+  odometer        Decimal?     @db.Decimal(12, 1)
   /// End date of the period `odometer` was measured at (a wall-clock date, held as UTC).
-  odometerAsOf    DateTime? @map("odometer_as_of") @db.Date
+  odometerAsOf    DateTime?    @map("odometer_as_of") @db.Date
   vin             String?
   plate           String?
   notes           String?
   /// Set by each conversion: the source format, the end of its latest trip, and when.
-  lastSource      String?   @map("last_source")
-  lastPeriodEnd   DateTime? @map("last_period_end") @db.Date
-  lastConvertedAt DateTime? @map("last_converted_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastSource      String?      @map("last_source")
+  lastPeriodEnd   DateTime?    @map("last_period_end") @db.Date
+  lastConvertedAt DateTime?    @map("last_converted_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  conversions     Conversion[]
 
   @@unique([companyId, number])
   @@map("units")
@@ -80,42 +84,80 @@ enum InboxStatus {
 }
 
 model InboxFile {
-  id            String      @id @default(cuid())
+  id             String      @id @default(cuid())
   /// Where the file is (relative to INPUT_DIR) while active; where it was once final.
-  path          String
-  name          String
+  path           String
+  name           String
   /// Company from the subfolder it was dropped in (INPUT_DIR/<company>/file).
-  folderCompany String?     @map("folder_company")
+  folderCompany  String?     @map("folder_company")
   /// Size + mtime at the last scan: a file is processed once these stop changing.
-  size          Int
-  mtimeMs       Float       @map("mtime_ms")
-  sha256        String?
-  status        InboxStatus @default(waiting)
+  size           Int
+  mtimeMs        Float       @map("mtime_ms")
+  sha256         String?
+  status         InboxStatus @default(waiting)
   /// Format / company / unit as last resolved (detected, from the folder, or entered).
-  format        String?
-  company       String?
-  unit          String?
+  format         String?
+  company        String?
+  unit           String?
   /// When the file holds several trucks (Motive): their unit #s, from the file (`unit` is null).
-  units         String[]    @default([])
+  units          String[]    @default([])
+  /// For a file with no dates of its own (Motive's distance summary): the period entered.
+  periodBegin    DateTime?   @map("period_begin") @db.Date
+  periodEnd      DateTime?   @map("period_end") @db.Date
   /// What the user still has to supply (SourceNeed values).
-  needs         String[]
-  error         String?
-  /// When needs = source: the company's approved formats, for the warning.
-  knownSources  String[]    @default([]) @map("known_sources")
+  needs          String[]
+  error          String?
+  /// When needs = source: the company's approved format, for the warning.
+  knownSource    String?     @map("known_source")
   /// When needs = format because several sources share the layout: the candidates.
-  formatOptions String[]    @default([]) @map("format_options")
-  /// The user confirmed converting from a format new for this company.
-  confirmSource Boolean     @default(false) @map("confirm_source")
+  formatOptions  String[]    @default([]) @map("format_options")
+  /// When needs = company because the unit # is saved under several companies: those.
+  companyOptions String[]    @default([]) @map("company_options")
+  /// The user confirmed converting from a format other than the company's approved one.
+  confirmSource  Boolean     @default(false) @map("confirm_source")
   /// ProMiles file(s) written to OUTPUT_DIR.
-  outputs       String[]
+  outputs        String[]
   /// Where the source went (relative to INPUT_DIR): archive/<date>/… or failed/….
-  archivedPath  String?     @map("archived_path")
-  processedAt   DateTime?   @map("processed_at")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
+  archivedPath   String?     @map("archived_path")
+  processedAt    DateTime?   @map("processed_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([path])
   @@index([sha256])
   @@map("inbox_files")
+}
+
+/// One truck's part of one converted source report (HistoryService). The names are kept as
+/// written at the time; the links go null when the company or truck is deleted.
+model Conversion {
+  id           String   @id @default(cuid())
+  companyId    String?  @map("company_id")
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  unitId       String?  @map("unit_id")
+  unit         Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  companyName  String   @map("company_name")
+  unitNumber   String   @map("unit_number")
+  /// 'portal' or 'inbox'.
+  origin       String
+  source       String?
+  sourceFile   String   @map("source_file")
+  outputFile   String   @map("output_file")
+  beginDate    DateTime @map("begin_date") @db.Date
+  endDate      DateTime @map("end_date") @db.Date
+  /// Null when ProMiles got the placeholder Begin Odo (no reading typed, saved or in the file).
+  beginOdo     Decimal? @map("begin_odo") @db.Decimal(12, 1)
+  endOdo       Decimal? @map("end_odo") @db.Decimal(12, 1)
+  distance     Decimal  @db.Decimal(12, 2)
+  distanceUnit String   @map("distance_unit")
+  states       String[]
+  /// HistoryTrip[] (@haulbook/shared): the report's trips, usually one per month.
+  trips        Json
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([companyId])
+  @@index([unitId])
+  @@map("conversions")
 }

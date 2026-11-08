@@ -62,6 +62,19 @@ export interface SourceReport {
    * as separate trucks. `trips` is then empty and `detectedUnit` null.
    */
   trucks?: ReportTruck[];
+  /**
+   * The file has no dates of its own (Motive's distance summary) and was read without a
+   * period (ReadOptions.period): its trips are empty until the user gives one.
+   */
+  needsPeriod?: boolean;
+  /** For such a file: the likely period (the month before it was exported), or null. */
+  suggestedPeriod?: [Date, Date] | null;
+}
+
+/** What the user supplied that the file itself can't say. */
+export interface ReadOptions {
+  /** The dates a dateless report covers, both included (UTC midnights). */
+  period?: [Date, Date];
 }
 
 // prettier-ignore

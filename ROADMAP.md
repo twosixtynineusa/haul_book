@@ -4,30 +4,26 @@
 >
 > **Last groomed:** 2026-11-07
 
-## Next — source importers (one per ELD provider)
+## Next — source importers (new providers)
 
-The portal lists these formats in its "Source format" picker as **coming soon**. Placeholder
-importers live in `apps/api/src/conversion/importers/placeholders.ts`. Real sample exports for
-all of them are kept locally (git-ignored, MANUAL_TODO §B). To build one:
+Every provider with a sample export is built (Wialon, Bellfam ELD, Ezlogz, HOS 247, Motive,
+Swift ELD, Vista ELD). When a sample from a new provider arrives (kept locally, git-ignored,
+MANUAL_TODO §B):
 
 1. Add `importers/<provider>.ts` implementing `Importer`:
    - `detect()` is a cheap, never-throwing check on the raw bytes (header row, sheet name, …).
    - `read()` returns trips per month (or per period) and state, plus the **company name and
      unit #** when the file or its name carries them.
-2. Register it in `importers/index.ts` and set `available: true` in `SOURCE_FORMATS`
-   (`packages/shared/src/contracts/sources.ts`).
-3. Add a **made-up** export in the exact same format to `apps/api/test/fixtures/` (never the real
-   sample), a spec, and a hand-derived golden ProMiles file.
+2. Add its id to `SOURCE_FORMATS` / `SourceFormatIdSchema` (`packages/shared/src/contracts/sources.ts`)
+   and register it in `importers/index.ts`. A provider listed before its importer exists gets
+   `available: false` and an importer whose `read()` explains it isn't built yet.
+3. Add a **made-up** export in the exact same format (never the real sample): a file in
+   `apps/api/test/fixtures/`, or for Excel a builder in `test/helpers/` using `xls-writer.ts`;
+   a spec; and a hand-derived golden ProMiles file.
 4. Document the format in `docs/data-contracts.md` and log it in CHANGELOG.
 
-| Provider | Placeholder id | Sample format | To build |
-|---|---|---|---|
-| **Swift ELD** | `swift` | `IFTA_Report*.xls` (legacy Excel) | Needs an Excel reader first (below). |
-| **Vista ELD** | `vista-eld` | `IFTA_Report*.xls` (legacy Excel) | Same; check whether Swift ELD and Vista ELD share one layout. |
-
-- **Excel (.xlsx / .xls) reading:** uploads are already accepted; reading them needs a parser
-  library in the API that handles legacy `.xls` (e.g. SheetJS). Pick it with the first Excel
-  provider (prefer a maintained one), then `make lock` and `make ci`.
+- **Modern Excel (.xlsx) reading:** `conversion/xls.ts` reads legacy `.xls` (BIFF8) only. The
+  first provider exporting `.xlsx` needs a reader for it (a zip of XML sheets).
 
 ## Next — portal
 
@@ -42,5 +38,3 @@ all of them are kept locally (git-ignored, MANUAL_TODO §B). To build one:
 ## Later
 
 - **Fuel purchases import:** a converter for ProMiles' fuel purchase template.
-- **Conversion history:** record each conversion (files, company, units, output) in Postgres for an
-  audit trail.

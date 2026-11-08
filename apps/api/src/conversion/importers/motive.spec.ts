@@ -152,15 +152,6 @@ describe('Motive IFTA trip report — variations', () => {
     ]);
   });
 
-  it('explains that the distance summary has no dates', () => {
-    const summary: UploadedFile = {
-      name: '1794000002-distance_summary_by_vehicle.csv',
-      bytes: Buffer.from('Vehicle,Jurisdiction,Distance (mi),Fuel (gal)\n9,Texas,10.00,0.000\n'),
-    };
-    expect(detectFormats(summary)).toEqual(['motive']);
-    expect(() => read(summary)).toThrow(/distance summary, which has no dates/);
-  });
-
   it.each([
     [report([]), /no trip rows/],
     [report([row('Oct 2, 2026', '', 'Texas', '1')]), /no Vehicle/],
@@ -168,6 +159,81 @@ describe('Motive IFTA trip report — variations', () => {
     [report([row('Oct 2, 2026', '9', 'Texas', 'lots')]), /unrecognised distance "lots"/],
     [report([row('Feb 30, 2026', '9', 'Texas', '1')]), /unrecognised date "Feb 30, 2026"/],
     [report([row('Oct 2, 2026', '9', 'Texas', '1', 'n/a', '5')]), /unrecognised odometer "n\/a"/],
+  ])('refuses a broken file with a reason (%#)', (file, reason) => {
+    expect(() => read(file)).toThrow(ConversionError);
+    expect(() => read(file)).toThrow(reason);
+  });
+});
+
+describe('Motive distance summary by vehicle', () => {
+  const SUMMARY_NAME = '1794000000-distance_summary_by_vehicle.csv';
+  const SUMMARY: UploadedFile = { name: SUMMARY_NAME, bytes: fixture(SUMMARY_NAME) };
+  const OCTOBER: [Date, Date] = [new Date(Date.UTC(2026, 9, 1)), new Date(Date.UTC(2026, 9, 31))];
+
+  /** A summary export with these rows: vehicle, state, miles. */
+  const summary = (rows: string[]): UploadedFile => ({
+    name: '1794000002-distance_summary_by_vehicle.csv',
+    bytes: Buffer.from(
+      ['Vehicle,Jurisdiction,Distance (mi),Fuel (gal)', ...rows].join('\n') + '\n',
+    ),
+  });
+
+  it('is recognised as Motive only', () => {
+    expect(detectFormats(SUMMARY)).toEqual(['motive']);
+  });
+
+  it('reads the vehicles but needs the period, offering the month before the export', () => {
+    const r = read(SUMMARY);
+    expect(r.needsPeriod).toBe(true);
+    expect(r.trucks).toEqual([
+      { unit: '12', trips: [] },
+      { unit: 'Volvo 9', trips: [] },
+    ]);
+    // 1794000000 = Nov 6, 2026 → October 2026.
+    expect(r.suggestedPeriod).toEqual(OCTOBER);
+    expect(motiveImporter.suggestPeriod?.('report.csv')).toBeNull();
+  });
+
+  it('makes one trip per vehicle over the period given, legs in file order', () => {
+    const r = motiveImporter.read(SUMMARY, [], { period: OCTOBER });
+    expect(r.needsPeriod).toBeUndefined();
+    const [twelve] = r.trucks!;
+    expect(twelve.trips).toEqual([
+      {
+        period: OCTOBER,
+        reportedTotal: 4871.84,
+        legs: [
+          { state: 'ID', begin: OCTOBER[0], end: OCTOBER[1], distance: '787' },
+          { state: 'MT', begin: OCTOBER[0], end: OCTOBER[1], distance: '1481' },
+          { state: 'WA', begin: OCTOBER[0], end: OCTOBER[1], distance: '2604' },
+        ],
+        odometer: null,
+      },
+    ]);
+  });
+
+  it('matches the golden ProMiles file for the sample export', () => {
+    const r = motiveImporter.read(SUMMARY, [], { period: OCTOBER });
+    const { outputs } = writeProMiles(trucksOf(r).map((t) => ({ ...t, sourceFile: SUMMARY_NAME })));
+    expect(outputs[0].csv).toBe(
+      fixture('promiles_expected_motive_summary_2trucks_oct2026.csv').toString('utf8'),
+    );
+  });
+
+  it('adds up a state listed twice and keeps one vehicle as a plain unit #', () => {
+    const r = motiveImporter.read(summary(['9,Texas,10.25', '9,Texas,"1,000.30"']), [], {
+      period: OCTOBER,
+    });
+    expect(r.detectedUnit).toBe('9');
+    expect(r.trucks).toBeUndefined();
+    expect(r.trips[0].legs.map((l) => [l.state, l.distance])).toEqual([['TX', '1011']]);
+  });
+
+  it.each([
+    [summary([]), /no distance rows/],
+    [summary([',Texas,1']), /no Vehicle/],
+    [summary(['9,Narnia,1']), /unknown state\/province "Narnia"/],
+    [summary(['9,Texas,lots']), /unrecognised distance "lots"/],
   ])('refuses a broken file with a reason (%#)', (file, reason) => {
     expect(() => read(file)).toThrow(ConversionError);
     expect(() => read(file)).toThrow(reason);

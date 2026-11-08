@@ -33,7 +33,7 @@
   "Imported: 1, Failures: 0" (a real export passed on 2026-11-06, so this is a formality).
 - [ ] Convert a Wialon report in the portal, pick the company it belongs to, and import the
   `<Company>_unit-22_2026-10.csv` it writes under that customer in FuelTaxOnline.
-- [ ] Convert a **Bellfam ELD** and a **HOS247** report and import each
+- [ ] Convert a **Bellfam ELD** and a **HOS 247** report and import each
   into FuelTaxOnline under that customer. Confirm the whole-mile state legs import with
   "Failures: 0" (the export has decimals; Haul Book rounds them).
 - [ ] Convert an **Ezlogz** Mileage Report, pick the company it belongs to, and import it into
@@ -43,6 +43,17 @@
   and import it into FuelTaxOnline. Confirm "Failures: 0" and that Begin Odo is the truck's real
   odometer. Before filing, check any "odometer moves with no state row" warning with the carrier:
   one real sample shows a week of miles in no state.
+- [ ] Convert a **Swift ELD** and a **Vista ELD** IFTA report (`IFTA_Report.xls`), pick which
+  system each came from the first time, and import each into FuelTaxOnline under that customer.
+  Confirm "Failures: 0" and that the whole-mile state legs match the report.
+- [ ] Convert a **Motive distance summary** (`…distance_summary_by_vehicle.csv`): enter the period
+  it covers (check the offered month is the one you exported), pick the company, and import it
+  into FuelTaxOnline. Confirm "Failures: 0" with one trip per truck for that period.
+- [ ] After converting a few reports, open the **History** tab and a truck's page (click its unit
+  #) and check the dates, odometers and miles match the ProMiles files. History starts with this
+  version: reports converted before it aren't listed.
+- [ ] Check each company's **approved source** on the Companies tab. Companies that had several
+  approved sources kept the one approved last; change it if that's not the ELD they use now.
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles
   imports one trip per month. Then drop two trucks' reports together and confirm both import.
 - [ ] On the PC that runs Haul Book, run **`make schedule-setup`** (README → Automatic updates).

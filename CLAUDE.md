@@ -3,29 +3,33 @@
 Instructions for AI agents working in this repo. Read before editing.
 
 ## What this is
-A local, single-user portal: ELD/telematics mileage reports (Wialon, Bellfam ELD, HOS247, Ezlogz and
-Motive built; Swift ELD and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
+A local, single-user portal: ELD/telematics mileage reports (Wialon, Bellfam ELD, HOS 247, Ezlogz and
+Motive (trip report + distance summary), Swift ELD and Vista ELD (Excel .xls) built) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
 unit #, saved to a host folder (`OUTPUT_DIR` in `.env`) and downloadable. Reports dropped in the
 watched input folder (`INPUT_DIR`) convert automatically via a BullMQ worker. The saved company →
-unit list and the input-folder inbox live in Postgres 18 (Prisma). A Companies tab manages the
-companies, their trucks and approved sources. Open source (MIT, [LICENSE](LICENSE)). Stack, versions
+unit list, the input-folder inbox and the conversion history live in Postgres 18 (Prisma). A
+Companies tab manages the companies, their trucks and each one's approved source; a History tab
+lists every converted report, and each truck has a page (`/trucks/<id>`). Open source (MIT, [LICENSE](LICENSE)). Stack, versions
 and dev rules: [Tech_Stack.md](Tech_Stack.md). File formats: [docs/data-contracts.md](docs/data-contracts.md).
 
 ```
 packages/shared/   @haulbook/shared — Zod HTTP contracts + constants (build first; apps use dist/)
 apps/api/          NestJS:
   src/conversion/importers/   one Importer per source format (detect + read) — wialon.ts,
-                              ifta-mileage-by-state.ts (Bellfam ELD + HOS247), ezlogz.ts,
-                              motive.ts, placeholders.ts
+                              ifta-mileage-by-state.ts (Bellfam ELD + HOS 247), ezlogz.ts,
+                              motive.ts, ifta-spreadsheet.ts (Swift ELD + Vista ELD, .xls)
+  src/conversion/xls.ts       in-house reader for legacy Excel .xls (OLE2 + BIFF8): cell values only
   src/conversion/promiles.ts  ProMiles writer (pure): trucks → one CSV per company
   src/conversion/conversion.service.ts  detect → read → company/unit → preview / save + name files
-  src/companies/              companies + trucks (Prisma): list, edit, merge, approved sources (/api/v1/companies)
+  src/companies/              companies + trucks (Prisma): list, edit, merge, approved source (/api/v1/companies)
+  src/history/                conversion history (/api/v1/history) + a truck with its history (/api/v1/trucks/:id)
   src/inbox/                  watched input folder: inbox.service.ts (scan → convert → archive),
                               inbox.processor.ts (BullMQ job scheduler), inbox.controller.ts (/api/v1/inbox)
   src/main.ts · src/worker.ts two processes, one image: HTTP api (app.module) + worker (worker.module)
   prisma/                     schema.prisma + migrations (make migrate NAME=…)
-apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx) and
-                   Companies tab (src/components/companies-page.tsx, company-detail.tsx)
+apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx),
+                   Companies tab (companies-page.tsx, company-detail.tsx), History tab (history-page.tsx)
+                   and truck pages (truck-page.tsx); company/unit pickers are combobox.tsx
 ```
 
 ## Input folder rules
@@ -38,7 +42,9 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
 - Never delete a source file: converted → `INPUT_DIR/archive/<YYYY-MM-DD>/<rel path>`, set aside
   → `INPUT_DIR/failed/`, both never overwriting (`_2`). Files needing input stay where they are.
 - Company precedence: user entry → the file → company subfolder → the single saved company with
-  that unit # (all of them, for a file with several trucks).
+  that unit # (all of them, for a file with several trucks). Several such companies → the file
+  `needs: company` with `companyOptions`; never pick one silently. (ConversionService does the
+  unit lookup for the portal too; the inbox passes the subfolder as a hint, not as the user's entry.)
   Same SHA-256 as an already-converted file → `duplicate`, archived, not converted.
 - Tests (`test/inbox.integration.spec.ts`) call `InboxService.scan()` directly against temp
   folders and override the queue token, so they need Postgres but not Redis.
@@ -85,16 +91,26 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   `units` (and `unit: null`), each truck becomes its own `TruckReport` with the file's unit #, and
   a typed unit # is ignored. In the input folder the company is the one saved company running all
   of them. Never merge two vehicles' miles into one truck.
-- **Source approval:** each company has approved source formats (`Company.sources`). Its first
-  conversion approves that format; a saved company's file in any other format `needs: source` and
-  waits (portal and input folder alike) until the user sends `confirmSource`, which converts it
-  and approves the format. Never convert a source switch silently. A company with no approved
-  sources yet (added by hand) takes whatever converts first.
+- **Dateless files** (Motive's distance summary): the importer returns `needsPeriod` (and a
+  `suggestedPeriod`) until `SourceChoice.period` is given; the file `needs: period`. Never convert
+  one with a guessed period. It becomes one trip per truck for the period, inside one quarter.
+- **Source approval:** each company has **one** approved source format (`Company.source`). Its
+  first conversion sets it; a saved company's file in any other format `needs: source` and waits
+  (portal and input folder alike) until the user sends `confirmSource`, which converts it and
+  makes that format the approved source, **replacing** the old one. Never convert a source
+  switch silently. A company with none yet (added by hand) takes whatever converts first; within
+  one upload, its first file's format counts as approved for the rest.
+- **History:** every saved conversion writes `conversions` rows (HistoryService.record, after
+  CompaniesService.record), one per truck per source file. Names are kept as written; the
+  company/unit links follow merges and go null on delete. Never write history for a preview.
 - **Shared layouts:** when several sources export the same layout, `detectFormats` returns them
   all and the file gets `formatOptions`. The company's approved source settles it when it's exactly
   one of them; otherwise it `needs: format`. Never silently pick the first match.
 - Companies match case/spacing-insensitively (`companyKey`); odometers are keyed per truck
   (`truckKey(company, unit)`) because unit #s repeat across companies.
+- **Excel sources** (Swift ELD, Vista ELD): read with `conversion/xls.ts` (legacy .xls only, values
+  only, no library). Their made-up fixtures are built in code (`test/helpers/ifta-report.ts` via
+  `xls-writer.ts`), never copied from a real export. Keep the writer and reader in step.
 
 ## Converter rules (don't regress)
 - Input is the **raw** Wialon export (`;`-delimited, Windows codepage, numbered month → state →

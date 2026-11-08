@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  companyChoiceText,
+  companyOptions,
+  companyOriginLabel,
   fileKey,
   formatChoiceText,
   needsAttention,
+  periodText,
   shownValue,
   sourceSwitchText,
   toChoices,
+  unitOptions,
   unitsFor,
 } from './sources';
 import { company } from './test-helpers';
@@ -41,13 +46,16 @@ describe('sources', () => {
       format: null,
       formatDetected: false,
       company: null,
-      companyDetected: false,
+      companyOrigin: null,
+      companyOptions: [],
       unit: null,
       unitDetected: false,
       units: [],
+      period: null,
+      suggestedPeriod: null,
       formatOptions: [],
       needs: [],
-      knownSources: [],
+      knownSource: null,
       error: null,
     };
     expect(needsAttention(base)).toBe(false);
@@ -66,11 +74,11 @@ describe('source switches', () => {
   });
 
   it('says which source the company came from and which this file is', () => {
-    expect(sourceSwitchText('ACME TRUCKING LLC', 'ezlogz', ['wialon'])).toBe(
+    expect(sourceSwitchText('ACME TRUCKING LLC', 'ezlogz', 'wialon')).toBe(
       'ACME TRUCKING LLC was imported from Wialon until now; this file is from Ezlogz.',
     );
-    expect(sourceSwitchText(null, null, ['wialon', 'motive'])).toBe(
-      'This company was imported from Wialon or Motive until now; this file is from a different source.',
+    expect(sourceSwitchText(null, null, null)).toBe(
+      'This company was imported from another source until now; this file is from a different source.',
     );
   });
 });
@@ -78,7 +86,59 @@ describe('source switches', () => {
 describe('formatChoiceText', () => {
   it('names the sources that share a layout', () => {
     expect(formatChoiceText(['bellamsp-anir', 'hos247'])).toBe(
-      'This layout is exported by either Bellfam ELD or HOS247, and nothing says which: pick the system it came from.',
+      'This layout is exported by either Bellfam ELD or HOS 247, and nothing says which: pick the system it came from.',
+    );
+  });
+});
+
+describe('pick lists', () => {
+  const companies = [
+    company('ACME TRUCKING LLC', ['22', '25'], { source: 'motive' }),
+    company('X Y Z FREIGHT LLC', ['22'], { source: null }),
+  ];
+
+  it('lists every saved company, the ones running the file’s unit # first', () => {
+    expect(companyOptions(companies)).toEqual([
+      { value: 'ACME TRUCKING LLC', hint: 'Motive · 2 trucks' },
+      { value: 'X Y Z FREIGHT LLC', hint: '1 truck' },
+    ]);
+    expect(companyOptions(companies, ['x y z freight llc']).map((o) => o.hint)).toEqual([
+      'has this unit # · 1 truck',
+      'Motive · 2 trucks',
+    ]);
+  });
+
+  it('lists the company’s trucks, or every saved truck with its companies', () => {
+    expect(unitOptions(companies, 'acme trucking llc')).toEqual([{ value: '22' }, { value: '25' }]);
+    expect(unitOptions(companies, '')).toEqual([
+      { value: '22', hint: 'ACME TRUCKING LLC, X Y Z FREIGHT LLC' },
+      { value: '25', hint: 'ACME TRUCKING LLC' },
+    ]);
+  });
+
+  it('labels where the company came from, and asks which when a unit # is shared', () => {
+    expect(companyOriginLabel('unit')).toBe('by unit #');
+    expect(companyOriginLabel('file')).toBe('from file');
+    expect(companyOriginLabel('user')).toBeNull();
+    expect(companyChoiceText('22', ['ACME', 'XYZ'])).toBe(
+      'Unit 22 is saved under ACME and XYZ: pick which company this file is for.',
+    );
+  });
+});
+
+describe('periods', () => {
+  it('sends a period only once both dates are in', () => {
+    expect(
+      toChoices([
+        { period: { begin: '2026-10-01', end: '' } },
+        { period: { begin: '2026-10-01', end: '2026-10-31' } },
+      ]),
+    ).toEqual([{}, { period: { begin: '2026-10-01', end: '2026-10-31' } }]);
+  });
+
+  it('writes a period as dates', () => {
+    expect(periodText({ begin: '2026-10-01', end: '2026-10-31' })).toBe(
+      'Oct 1, 2026 – Oct 31, 2026',
     );
   });
 });

@@ -51,10 +51,11 @@ export const CompanySchema = z.object({
   id: z.string(),
   name: z.string(),
   /**
-   * Source formats approved for this company. A file from any other format waits
-   * for the user to confirm the switch; confirming approves it.
+   * The one source format approved for this company (null = none yet: the next converted
+   * file's format becomes it). A file from any other format waits for the user to confirm
+   * the switch; confirming makes that format the approved one, replacing this.
    */
-  sources: z.array(SourceFormatIdSchema),
+  source: SourceFormatIdSchema.nullable(),
   dotNumber: z.string().nullable(),
   iftaAccount: z.string().nullable(),
   contactName: z.string().nullable(),
@@ -95,7 +96,8 @@ export type CompanyInput = z.input<typeof CompanyInputSchema>;
 export const CompanyUpdateSchema = z.object({
   name: CompanyNameSchema.optional(),
   ...companyDetails,
-  sources: z.array(SourceFormatIdSchema).optional(),
+  /** Replaces the approved source; null clears it. */
+  source: SourceFormatIdSchema.nullable().optional(),
 });
 export type CompanyUpdate = z.input<typeof CompanyUpdateSchema>;
 

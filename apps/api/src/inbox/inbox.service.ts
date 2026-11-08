@@ -18,10 +18,10 @@ import {
   type SourceChoice,
   type SourceFormatId,
 } from '@haulbook/shared';
-import { CompaniesService } from '../companies/companies.service';
 import { handToHostUser } from '../common/host-files';
 import { env } from '../config/env';
-import { ConversionService } from '../conversion/conversion.service';
+import { ConversionService, type ConvertOptions } from '../conversion/conversion.service';
+import { suggestedPeriod } from '../conversion/importers';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Sub-folders of INPUT_DIR the scanner never reads: where processed files go. */
@@ -35,6 +35,9 @@ const CLAIMABLE: InboxStatus[] = ['waiting', 'needs_input', 'failed'];
 /** A crash mid-conversion leaves `processing`; retry it after this long. */
 const STUCK_AFTER_MS = 10 * 60_000;
 const RECENT_LIMIT = 25;
+/** A Postgres `date` ↔ `YYYY-MM-DD`. */
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const dateOf = (iso: string) => new Date(`${iso}T00:00:00Z`);
 /** Browser downloads / editors still writing, lock files. */
 const PARTIAL_RE = /\.(part|crdownload|download|tmp)$/i;
 
@@ -75,11 +78,12 @@ function withSuffix(rel: string, n: number): string {
  * Per file: wait until its size + mtime are unchanged across two scans, then run
  * it through the same pipeline as a portal upload (ConversionService). Company =
  * what the user entered, else what the file carries, else the company sub-folder
- * it was dropped in, else the one saved company that has its unit #. Converted
- * (or duplicate) sources move to `archive/<YYYY-MM-DD>/`; anything missing a
- * format / company / unit waits as `needs_input` until the user fills it in, and so
- * does a saved company's file from a source it wasn't converted from before, until
- * the user confirms the switch (that source is then approved for the company).
+ * it was dropped in, else the one saved company that has its unit # (several:
+ * the user picks). Converted (or duplicate) sources move to
+ * `archive/<YYYY-MM-DD>/`; anything missing a format / company / unit / period
+ * waits as `needs_input` until the user fills it in, and so does a saved company's
+ * file in a format other than its approved source, until the user confirms the
+ * switch (that format then replaces the company's approved source).
  */
 @Injectable()
 export class InboxService implements OnModuleInit {
@@ -88,7 +92,6 @@ export class InboxService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversion: ConversionService,
-    private readonly companies: CompaniesService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -193,6 +196,9 @@ export class InboxService implements OnModuleInit {
         format: choice.format ?? record.format,
         company: choice.company ?? record.company,
         unit: choice.unit ?? record.unit,
+        ...(choice.period
+          ? { periodBegin: dateOf(choice.period.begin), periodEnd: dateOf(choice.period.end) }
+          : {}),
         confirmSource: choice.confirmSource ?? record.confirmSource,
       },
     });
@@ -272,36 +278,25 @@ export class InboxService implements OnModuleInit {
     }
 
     const file = { name: record.name, bytes };
-    const company = record.company ?? record.folderCompany;
     const choice: SourceChoice = {
       ...(record.format ? { format: record.format as SourceFormatId } : {}),
-      ...(company ? { company } : {}),
+      ...(record.company ? { company: record.company } : {}),
       ...(record.unit ? { unit: record.unit } : {}),
+      ...(record.periodBegin && record.periodEnd
+        ? { period: { begin: isoDay(record.periodBegin), end: isoDay(record.periodEnd) } }
+        : {}),
       ...(record.confirmSource ? { confirmSource: true } : {}),
     };
-    let preview = await this.conversion.preview([file], [choice], {});
-    let source = preview.files[0];
-
-    // No company anywhere: if exactly one saved company runs this unit # (every one of them,
-    // for a file with several trucks), it's theirs.
-    const units = source.unit ? [source.unit] : source.units;
-    if (source.needs.includes('company') && units.length > 0 && !source.error) {
-      let owners = await this.companies.companiesWithUnit(units[0]);
-      for (const unit of units.slice(1)) {
-        const also = new Set(await this.companies.companiesWithUnit(unit));
-        owners = owners.filter((o) => also.has(o));
-      }
-      if (owners.length === 1) {
-        choice.company = owners[0];
-        preview = await this.conversion.preview([file], [choice], {});
-        source = preview.files[0];
-      }
-    }
+    // The company sub-folder counts after the file's own company, and before the unit #'s.
+    const options: ConvertOptions = { hints: [{ folderCompany: record.folderCompany }] };
+    const preview = await this.conversion.preview([file], [choice], {}, options);
+    const source = preview.files[0];
 
     const resolved = {
       format: source.format,
       formatOptions: source.formatOptions,
       company: source.company,
+      companyOptions: source.companyOptions,
       unit: source.unit,
       units: source.units,
       sha256,
@@ -314,13 +309,21 @@ export class InboxService implements OnModuleInit {
           ...resolved,
           status: needsInput ? 'needs_input' : 'failed',
           needs: source.needs,
-          knownSources: source.knownSources,
+          knownSource: source.knownSource,
           error: source.error ?? (preview.errors.join(' · ') || null),
         },
       });
     }
 
-    const result = await this.conversion.convertAndSave([file], [choice], {});
+    const result = await this.conversion.convertAndSave(
+      [file],
+      [choice],
+      {},
+      {
+        ...options,
+        origin: 'inbox',
+      },
+    );
     const archivedPath = await this.moveSource(record.path, ARCHIVE_DIR, true);
     this.logger.log(`${record.path} → ${result.outputs.map((o) => o.name).join(', ')}`);
     return this.prisma.inboxFile.update({
@@ -434,6 +437,12 @@ export class InboxService implements OnModuleInit {
 
 export function toEntry(r: InboxFile): InboxEntry {
   const format = SourceFormatIdSchema.safeParse(r.format);
+  const known = SourceFormatIdSchema.safeParse(r.knownSource);
+  const needs = r.needs.filter((n) => SourceNeedSchema.safeParse(n).success) as InboxEntry['needs'];
+  const period =
+    r.periodBegin && r.periodEnd
+      ? { begin: isoDay(r.periodBegin), end: isoDay(r.periodEnd) }
+      : null;
   return {
     id: r.id,
     path: r.path,
@@ -444,12 +453,16 @@ export function toEntry(r: InboxFile): InboxEntry {
       (s) => SourceFormatIdSchema.safeParse(s).success,
     ) as InboxEntry['formatOptions'],
     company: r.company ?? r.folderCompany,
+    companyOptions: r.companyOptions,
     unit: r.unit,
     units: r.units,
-    needs: r.needs.filter((n) => SourceNeedSchema.safeParse(n).success) as InboxEntry['needs'],
-    knownSources: r.knownSources.filter(
-      (s) => SourceFormatIdSchema.safeParse(s).success,
-    ) as InboxEntry['knownSources'],
+    period,
+    suggestedPeriod:
+      format.success && (period || needs.includes('period'))
+        ? suggestedPeriod(format.data, r.name)
+        : null,
+    needs,
+    knownSource: known.success ? known.data : null,
     error: r.error,
     outputs: r.outputs,
     archivedPath: r.archivedPath,

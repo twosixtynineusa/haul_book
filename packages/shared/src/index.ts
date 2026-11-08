@@ -7,5 +7,6 @@ export * from './constants';
 export * from './contracts/common';
 export * from './contracts/companies';
 export * from './contracts/conversion';
+export * from './contracts/history';
 export * from './contracts/inbox';
 export * from './contracts/sources';

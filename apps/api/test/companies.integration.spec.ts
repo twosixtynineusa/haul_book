@@ -35,6 +35,7 @@ describeDb('Companies (Postgres integration)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.conversion.deleteMany();
     await prisma.company.deleteMany();
   });
 
@@ -116,28 +117,43 @@ describeDb('Companies (Postgres integration)', () => {
     expect(await prisma.unit.count()).toBe(2);
   });
 
-  it('approves the sources converted and records each truck’s latest activity', async () => {
+  it('finds the companies running each unit #', async () => {
+    await companies.record([
+      { company: 'B', units: ['22', '25'] },
+      { company: 'A', units: ['22'] },
+    ]);
+    expect(await companies.ownersOfUnits(['22', ' 25 ', '99'])).toEqual(
+      new Map([
+        ['22', ['A', 'B']],
+        ['25', ['B']],
+        ['99', []],
+      ]),
+    );
+  });
+
+  it('makes the format converted the approved source and records each truck’s latest activity', async () => {
     const day = (m: number, d: number) => new Date(Date.UTC(2026, m - 1, d));
     await companies.record([
       {
         company: 'ACME',
         units: ['22'],
-        sources: ['wialon'],
+        source: 'wialon',
         activity: [{ unit: '22', source: 'wialon', periodEnd: day(10, 31) }],
       },
     ]);
-    // An older period later doesn't wind back the truck's latest source/period.
+    // A confirmed switch replaces the approved source; an older period doesn't wind back the
+    // truck's latest source/period.
     await companies.record([
       {
         company: 'acme',
         units: ['22'],
-        sources: ['ezlogz'],
+        source: 'ezlogz',
         activity: [{ unit: '22', source: 'ezlogz', periodEnd: day(9, 30) }],
       },
     ]);
 
     expect(await companies.approvedSources(['ACME', 'Nobody'])).toEqual(
-      new Map([['acme', ['wialon', 'ezlogz']]]),
+      new Map([['acme', 'ezlogz']]),
     );
     const [acme] = (await companies.list()).companies;
     expect(acme.trucks[0]).toMatchObject({
@@ -160,7 +176,7 @@ describeDb('Companies (Postgres integration)', () => {
         name: 'ACME TRUCKING LLC',
         dotNumber: '1234567',
         email: null,
-        sources: [],
+        source: null,
         trucks: [],
       });
 
@@ -177,6 +193,18 @@ describeDb('Companies (Postgres integration)', () => {
       expect(await companies.canonicalNames(['acme trucking, llc'])).toEqual(
         new Map([['acme trucking, llc', 'Acme Trucking, LLC']]),
       );
+    });
+
+    it('sets one approved source: a new pick replaces the old, null clears it', async () => {
+      const acme = await create({ name: 'ACME' });
+      const patch = (source: string | null) =>
+        http().patch(`/api/v1/companies/${acme.id}`).send({ source });
+      expect((await patch('wialon').expect(200)).body.source).toBe('wialon');
+      expect((await patch('motive').expect(200)).body.source).toBe('motive');
+      expect(await companies.approvedSources(['acme'])).toEqual(new Map([['acme', 'motive']]));
+      expect((await patch(null).expect(200)).body.source).toBeNull();
+      expect(await companies.approvedSources(['acme'])).toEqual(new Map());
+      await patch('nope').expect(400);
     });
 
     it('refuses a duplicate name or unit #, and bad input, with a reason', async () => {
@@ -236,13 +264,13 @@ describeDb('Companies (Postgres integration)', () => {
         {
           company: 'ACME TRUCKING LLC',
           units: ['22'],
-          sources: ['wialon'],
+          source: 'wialon',
           odometers: [{ unit: '22', reading: 1000, asOf: day(9, 30) }],
         },
         {
           company: 'Acme Trucking',
           units: ['22', '25'],
-          sources: ['ezlogz'],
+          source: 'ezlogz',
           odometers: [{ unit: '22', reading: 2000, asOf: day(10, 31) }],
         },
       ]);
@@ -258,7 +286,7 @@ describeDb('Companies (Postgres integration)', () => {
       expect(merged).toMatchObject({
         id: long.id,
         name: 'ACME TRUCKING LLC',
-        sources: ['wialon', 'ezlogz'],
+        source: 'wialon',
         phone: '555-0100',
       });
       expect(merged.trucks.map((t) => [t.unit, t.odometer])).toEqual([

@@ -22,8 +22,11 @@ export interface RecordEntry {
   company: string;
   units: string[];
   odometers?: (SavedReading & { unit: string })[];
-  /** Source formats of the files converted for it: added to its approved sources. */
-  sources?: SourceFormatId[];
+  /**
+   * The source format its files were converted from: it becomes the company's approved
+   * source (replacing any other, which conversion only allows once the user confirmed).
+   */
+  source?: SourceFormatId;
   /** Per truck: the format it came from and the end of its latest trip. */
   activity?: { unit: string; source: SourceFormatId; periodEnd: Date }[];
 }
@@ -43,11 +46,12 @@ const cleanName = (name: string) => name.trim().replace(/\s+/g, ' ');
 const isLater = (a: Date | null, b: Date | null): a is Date => !!a && (!b || a > b);
 const later = (a: Date | null, b: Date | null) => (isLater(a, b) ? a : b);
 
-function sourcesOf(row: CompanyRow): SourceFormatId[] {
-  return row.sources.filter((s): s is SourceFormatId => SourceFormatIdSchema.safeParse(s).success);
+export function sourceOf(row: Pick<CompanyRow, 'source'>): SourceFormatId | null {
+  const source = SourceFormatIdSchema.safeParse(row.source);
+  return source.success ? source.data : null;
 }
 
-function toTruck(u: UnitRow): Truck {
+export function toTruck(u: UnitRow): Truck {
   const source = SourceFormatIdSchema.safeParse(u.lastSource);
   return {
     id: u.id,
@@ -69,7 +73,7 @@ function toCompany(c: CompanyWithUnits): Company {
   return {
     id: c.id,
     name: c.name,
-    sources: sourcesOf(c),
+    source: sourceOf(c),
     dotNumber: c.dotNumber,
     iftaAccount: c.iftaAccount,
     contactName: c.contactName,
@@ -147,7 +151,8 @@ export class CompaniesService {
   /**
    * Folds company `id` into `into` (two spellings of one carrier): its trucks move
    * across, a unit # both have keeps the later odometer/activity and fills blank
-   * details, approved sources are combined, blank company details are filled in,
+   * details, the kept company's approved source stays (or it takes `id`'s when it has
+   * none), blank company details are filled in, conversion history follows the trucks,
    * and `id` is deleted.
    */
   async merge(id: string, into: string): Promise<Company> {
@@ -160,6 +165,7 @@ export class CompaniesService {
           await tx.unit.update({ where: { id: u.id }, data: { companyId: to.id } });
           continue;
         }
+        await tx.conversion.updateMany({ where: { unitId: u.id }, data: { unitId: twin.id } });
         await tx.unit.delete({ where: { id: u.id } });
         await tx.unit.update({
           where: { id: twin.id },
@@ -177,10 +183,11 @@ export class CompaniesService {
           },
         });
       }
+      await tx.conversion.updateMany({ where: { companyId: from.id }, data: { companyId: to.id } });
       await tx.company.update({
         where: { id: to.id },
         data: {
-          sources: [...new Set([...to.sources, ...from.sources])],
+          source: to.source ?? from.source,
           dotNumber: to.dotNumber ?? from.dotNumber,
           iftaAccount: to.iftaAccount ?? from.iftaAccount,
           contactName: to.contactName ?? from.contactName,
@@ -225,21 +232,42 @@ export class CompaniesService {
     return new Map(rows.map((c) => [c.nameKey, c.name]));
   }
 
-  /** Approved source formats of the saved companies among `names`, keyed companyKey. */
-  async approvedSources(names: string[]): Promise<Map<string, SourceFormatId[]>> {
+  /**
+   * The approved source of the saved companies among `names`, keyed companyKey. A company
+   * with none yet (or not saved) is left out: its first converted file's format is approved.
+   */
+  async approvedSources(names: string[]): Promise<Map<string, SourceFormatId>> {
     const keys = [...new Set(names.map(companyKey))];
     if (keys.length === 0) return new Map();
     const rows = await this.prisma.company.findMany({ where: { nameKey: { in: keys } } });
-    return new Map(rows.map((c) => [c.nameKey, sourcesOf(c)]));
+    return new Map(
+      rows.flatMap((c) => {
+        const source = sourceOf(c);
+        return source ? [[c.nameKey, source] as const] : [];
+      }),
+    );
   }
 
-  /** Saved companies that have this unit #: one match lets the inbox fill in the company. */
-  async companiesWithUnit(unit: string): Promise<string[]> {
+  /**
+   * Per unit #, the saved companies that run a truck with it. A file with no company takes
+   * the one company that matches; several mean the user has to pick.
+   */
+  async ownersOfUnits(units: string[]): Promise<Map<string, string[]>> {
+    const numbers = [...new Set(units.map((u) => u.trim()))];
+    if (numbers.length === 0) return new Map();
     const rows = await this.prisma.unit.findMany({
-      where: { number: unit.trim() },
+      where: { number: { in: numbers } },
       include: { company: true },
     });
-    return rows.map((u) => u.company.name).sort(naturally);
+    return new Map(
+      numbers.map((n) => [
+        n,
+        rows
+          .filter((u) => u.number === n)
+          .map((u) => u.company.name)
+          .sort(naturally),
+      ]),
+    );
   }
 
   /** The saved odometers of these trucks, keyed truckKey(company, unit). */
@@ -266,21 +294,21 @@ export class CompaniesService {
 
   /**
    * After a conversion: adds any companies/units not yet in the list (existing
-   * ones keep their spelling and details), approves the formats converted, and per
-   * truck saves its end odometer and latest activity, unless a later period is
-   * already saved (re-converting an old quarter must not wind them back).
+   * ones keep their spelling and details), makes the format converted the company's
+   * approved source, and per truck saves its end odometer and latest activity,
+   * unless a later period is already saved (re-converting an old quarter must not
+   * wind them back).
    */
   async record(entries: RecordEntry[]): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      for (const { company, units, odometers = [], sources = [], activity = [] } of entries) {
+      for (const { company, units, odometers = [], source, activity = [] } of entries) {
         const saved = await tx.company.upsert({
           where: { nameKey: companyKey(company) },
-          create: { name: cleanName(company), nameKey: companyKey(company), sources },
+          create: { name: cleanName(company), nameKey: companyKey(company), source },
           update: {},
         });
-        const approved = new Set([...saved.sources, ...sources]);
-        if (approved.size > saved.sources.length) {
-          await tx.company.update({ where: { id: saved.id }, data: { sources: [...approved] } });
+        if (source && saved.source !== source) {
+          await tx.company.update({ where: { id: saved.id }, data: { source } });
         }
         for (const number of new Set(units.map((u) => u.trim()))) {
           await tx.unit.upsert({

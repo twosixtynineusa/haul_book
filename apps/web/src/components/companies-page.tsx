@@ -38,6 +38,9 @@ export function CompaniesPage() {
 
   useEffect(() => {
     void refresh();
+    // `/companies?company=<id>` (a truck page's links) opens that company.
+    const wanted = new URLSearchParams(window.location.search).get('company');
+    if (wanted) setOpenId(wanted);
   }, [refresh]);
 
   const replace = (company: Company) =>
@@ -79,8 +82,9 @@ export function CompaniesPage() {
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Companies and trucks are added automatically when a file is converted. Each company
-          imports from its approved sources only: a file from a different source waits on the
-          Dashboard until you confirm it.
+          imports from its one approved source: a file from a different source waits on the
+          Dashboard until you confirm it, which makes that source the approved one. Click a unit #
+          to see the truck and every report converted for it.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -170,16 +174,14 @@ export function CompaniesPage() {
                   )}
                   <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
-                  <span className="flex flex-wrap gap-1">
-                    {c.sources.map((s) => (
-                      <span
-                        key={s}
-                        className="rounded bg-primary-soft px-1.5 py-0.5 text-[11px] font-medium text-primary"
-                      >
-                        {sourceName(s)}
-                      </span>
-                    ))}
-                  </span>
+                  {c.source && (
+                    <span
+                      className="rounded bg-primary-soft px-1.5 py-0.5 text-[11px] font-medium text-primary"
+                      title="Approved source"
+                    >
+                      {sourceName(c.source)}
+                    </span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {plural(c.trucks.length, 'truck')}
                     {c.dotNumber && ` · USDOT ${c.dotNumber}`}

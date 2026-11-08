@@ -5,7 +5,7 @@ export function company(name: string, units: string[] = [], extra: Partial<Compa
   return {
     id: name,
     name,
-    sources: ['wialon'],
+    source: 'wialon',
     dotNumber: null,
     iftaAccount: null,
     contactName: null,

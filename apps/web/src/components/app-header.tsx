@@ -2,16 +2,18 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, LayoutDashboard, Truck } from 'lucide-react';
+import { Building2, History, LayoutDashboard, Truck } from 'lucide-react';
 import { APP_NAME } from '@haulbook/shared';
 import { cx } from './ui';
 
 const TABS = [
   { href: '/', label: 'Dashboard', Icon: LayoutDashboard },
   { href: '/companies', label: 'Companies', Icon: Building2 },
+  { href: '/history', label: 'History', Icon: History },
 ] as const;
 
-/** App title + the two tabs: Dashboard (convert, input folder) and Companies. */
+/** App title + the tabs: Dashboard (convert, input folder), Companies (a truck's page sits
+ * under it) and History. */
 export function AppHeader() {
   const pathname = usePathname();
   return (
@@ -29,7 +31,11 @@ export function AppHeader() {
       </div>
       <nav className="flex gap-1 rounded-lg bg-muted p-1 sm:ml-auto" aria-label="Sections">
         {TABS.map(({ href, label, Icon }) => {
-          const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+          const active =
+            href === '/'
+              ? pathname === '/'
+              : pathname.startsWith(href) ||
+                (href === '/companies' && pathname.startsWith('/trucks'));
           return (
             <Link
               key={href}

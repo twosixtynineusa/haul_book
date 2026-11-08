@@ -14,9 +14,11 @@ import {
   truckKey,
   type ConversionPreview,
   type ConversionResult,
+  type HistoryOrigin,
   type OdometerMap,
   type OutputFile,
   type OutputList,
+  type Period,
   type SavedOutput,
   type SourceChoice,
   type SourceFile,
@@ -25,6 +27,7 @@ import {
   type TripSummary,
 } from '@haulbook/shared';
 import { CompaniesService, type RecordEntry } from '../companies/companies.service';
+import { HistoryService, type HistoryRecord } from '../history/history.service';
 import { handToHostUser } from '../common/host-files';
 import { env } from '../config/env';
 import { ConversionError, type SourceReport, type UploadedFile } from './common';
@@ -71,7 +74,11 @@ export function outputBaseName(output: Pick<CompanyOutput, 'company' | 'units' |
 }
 
 /** A file ready to convert, with the source format it was read as. */
-type ReadyReport = TruckReport & { format: SourceFormatId };
+type ReadyReport = TruckReport & {
+  format: SourceFormatId;
+  /** The user confirmed this format as the company's new source. */
+  confirmed: boolean;
+};
 
 interface Analysis {
   files: SourceFile[];
@@ -79,11 +86,41 @@ interface Analysis {
   warnings: string[];
 }
 
+/** What a file was read as, kept until it's known whether it can convert. */
+interface Read {
+  report: SourceReport;
+  warnings: string[];
+}
+
+/** Hints a caller has besides the user's choices: the input sub-folder's company. */
+export interface FileHint {
+  folderCompany?: string | null;
+}
+
+export interface ConvertOptions {
+  hints?: FileHint[];
+  /** Recorded in the conversion history. */
+  origin?: HistoryOrigin;
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const toPeriod = ([begin, end]: [Date, Date]): Period => ({
+  begin: isoDay(begin),
+  end: isoDay(end),
+});
+const fromPeriod = (p: Period): [Date, Date] => [
+  new Date(`${p.begin}T00:00:00Z`),
+  new Date(`${p.end}T00:00:00Z`),
+];
+
 @Injectable()
 export class ConversionService implements OnModuleInit {
   private readonly logger = new Logger(ConversionService.name);
 
-  constructor(private readonly companies: CompaniesService) {}
+  constructor(
+    private readonly companies: CompaniesService,
+    private readonly history: HistoryService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     await fsp.mkdir(env.outputPath, { recursive: true });
@@ -93,8 +130,9 @@ export class ConversionService implements OnModuleInit {
     files: UploadedFile[],
     choices: SourceChoice[],
     odometers: OdometerMap,
+    options: ConvertOptions = {},
   ): Promise<ConversionPreview> {
-    const { preview } = await this.plan(files, choices, odometers);
+    const { preview } = await this.plan(files, choices, odometers, options.hints ?? []);
     return preview;
   }
 
@@ -102,17 +140,26 @@ export class ConversionService implements OnModuleInit {
     files: UploadedFile[],
     choices: SourceChoice[],
     odometers: OdometerMap,
+    options: ConvertOptions = {},
   ): Promise<ConversionResult> {
-    const { preview, outputs, ready } = await this.plan(files, choices, odometers);
+    const { preview, outputs, ready } = await this.plan(
+      files,
+      choices,
+      odometers,
+      options.hints ?? [],
+    );
     if (!preview.ready) throw new BadRequestException(describeProblems(preview));
 
     const saved: SavedOutput[] = [];
+    const history: HistoryRecord[] = [];
     for (const output of outputs) {
       const name = await this.writeUnique(outputBaseName(output), output.csv);
       saved.push({ ...(await this.describe(name)), company: output.company, units: output.units });
+      history.push(...historyRecords(output, name, ready, options.origin ?? 'portal'));
       this.logger.log(`Saved ${name} (${output.trips.length} trip(s)) to ${env.outputDirLabel}`);
     }
     await this.companies.record(outputs.map((o) => recordEntry(o, ready)));
+    await this.history.record(history);
     return { ...preview, outputs: saved, outputDir: env.outputDirLabel };
   }
 
@@ -140,8 +187,13 @@ export class ConversionService implements OnModuleInit {
   }
 
   /** Analyse every file, then build the ProMiles output from the ones that are ready. */
-  private async plan(files: UploadedFile[], choices: SourceChoice[], odometers: OdometerMap) {
-    const analysis = await this.analyze(files, choices);
+  private async plan(
+    files: UploadedFile[],
+    choices: SourceChoice[],
+    odometers: OdometerMap,
+    hints: FileHint[],
+  ) {
+    const analysis = await this.analyze(files, choices, hints);
     const errors: string[] = [];
     let outputs: CompanyOutput[] = [];
     let trips: TripSummary[] = [];
@@ -175,20 +227,34 @@ export class ConversionService implements OnModuleInit {
   }
 
   /**
-   * Per file: format = the user's pick, else auto-detected; then the importer
-   * reads it; company and unit = the user's entry, else what the file carries. A file
-   * holding several trucks (Motive) gives one ready report per truck, unit #s from the file.
-   * A saved company's file in a format it hasn't been converted from before waits
-   * until the user confirms the switch (`confirmSource`).
+   * Per file:
+   * - format = the user's pick, else auto-detected, else (nothing recognises it) the
+   *   approved source of the company it belongs to, when that source can read it;
+   * - the importer reads it; company = the user's entry, else the file's, else the input
+   *   sub-folder's, else the one saved company running its unit #(s) — several such
+   *   companies, and the user picks; unit # = the user's entry, else the file's;
+   * - a layout several sources share takes the company's approved source when that's one
+   *   of them, else the user picks;
+   * - a file with no dates of its own waits for the user's period;
+   * - a company's file in a format other than its approved source waits until the user
+   *   confirms the switch (`confirmSource`). A company with none yet takes the format of
+   *   its first file in the upload.
+   * A file holding several trucks (Motive) gives one ready report per truck, unit #s from
+   * the file.
    */
-  private async analyze(files: UploadedFile[], choices: SourceChoice[]): Promise<Analysis> {
-    const warnings: string[] = [];
+  private async analyze(
+    files: UploadedFile[],
+    choices: SourceChoice[],
+    hints: FileHint[],
+  ): Promise<Analysis> {
     const sources: SourceFile[] = [];
     /** Aligned with `sources`: what was read, for the files that could be read. */
-    const reports: ({ report: SourceReport; warnings: string[] } | null)[] = [];
+    const reads: (Read | null)[] = [];
 
-    const typedCompanies = choices.map((c) => c.company).filter((c): c is string => !!c);
-    const known = await this.companies.canonicalNames(typedCompanies);
+    const named = [...choices.map((c) => c.company), ...hints.map((h) => h.folderCompany)].filter(
+      (c): c is string => !!c?.trim(),
+    );
+    const known = await this.companies.canonicalNames(named);
     // Reuse the saved spelling so "acme trucking" doesn't become a second company.
     const canonical = (name: string) => known.get(companyKey(name)) ?? name.trim();
 
@@ -202,21 +268,22 @@ export class ConversionService implements OnModuleInit {
         formatDetected: !choice.format && format !== null,
         formatOptions: candidates.length > 1 ? candidates : [],
         company: choice.company ? canonical(choice.company) : null,
-        companyDetected: false,
+        companyOrigin: choice.company ? 'user' : null,
+        companyOptions: [],
         unit: choice.unit?.trim() ?? null,
         unitDetected: false,
         units: [],
+        period: null,
+        suggestedPeriod: null,
         needs: [],
-        knownSources: [],
+        knownSource: null,
         error: null,
       };
       sources.push(source);
-      reports.push(null);
+      reads.push(null);
 
-      if (!format && candidates.length <= 1) {
-        source.needs.push('format');
-        continue;
-      }
+      // Nothing recognises it: the company's approved source may still read it (below).
+      if (!format && candidates.length === 0) continue;
       // Several sources share this layout: read it to learn the company; which source it
       // is gets settled below.
       const reader = format ?? candidates[0];
@@ -224,74 +291,81 @@ export class ConversionService implements OnModuleInit {
         source.error = `${sourceFormat(reader).label} files can't be converted yet — that importer is still to be built.`;
         continue;
       }
-
-      const fileWarnings: string[] = [];
-      let report;
-      try {
-        report = IMPORTERS[reader].read(file, fileWarnings);
-      } catch (e) {
-        if (!(e instanceof ConversionError)) throw e;
-        source.error = e.message;
-        continue;
-      }
-      reports[i] = { report, warnings: fileWarnings };
-
-      if (!source.company && report.detectedCompany) {
-        source.company = report.detectedCompany;
-        source.companyDetected = true;
-      }
-      if (report.trucks) {
-        // Several trucks: each unit # comes from the file; one typed for the file can't apply.
-        source.units = report.trucks.map((t) => t.unit);
-        source.unit = null;
-        source.unitDetected = true;
-      } else if (!source.unit && report.detectedUnit) {
-        source.unit = report.detectedUnit;
-        source.unitDetected = true;
-      }
-      if (!source.company) source.needs.push('company');
-      if (!source.unit && source.units.length === 0) source.needs.push('unit');
+      reads[i] = this.read(file, reader, choice, source);
     }
 
+    this.fromFolders(sources, hints, canonical);
     // Detected company names also snap to the saved spelling.
-    const detectedNames = sources.filter((s) => s.companyDetected).map((s) => s.company!);
-    if (detectedNames.length > 0) {
-      const more = await this.companies.canonicalNames(detectedNames);
-      for (const s of sources.filter((x) => x.companyDetected)) {
+    const detected = sources.filter((s) => s.companyOrigin === 'file').map((s) => s.company!);
+    if (detected.length > 0) {
+      const more = await this.companies.canonicalNames(detected);
+      for (const s of sources.filter((x) => x.companyOrigin === 'file')) {
         s.company = more.get(companyKey(s.company!)) ?? s.company;
       }
     }
+    await this.fromUnits(sources);
 
-    // Owners switch ELD providers: a known company's first file from a new source waits.
     const approved = await this.companies.approvedSources(
-      sources.filter((s, i) => s.company && reports[i]).map((s) => s.company!),
+      sources.filter((s) => s.company).map((s) => s.company!),
     );
-    // A layout several sources share: the one this company was converted from decides, when
-    // it's exactly one of them; otherwise the user picks.
+    const approvedOf = (s: SourceFile) =>
+      s.company ? (approved.get(companyKey(s.company)) ?? null) : null;
+
+    // Not recognised: try the company's approved source, when it's a different importer.
     for (const [i, s] of sources.entries()) {
-      if (!reports[i] || s.format || s.formatOptions.length === 0) continue;
-      const known = s.company ? (approved.get(companyKey(s.company)) ?? []) : [];
-      const used = s.formatOptions.filter((f) => known.includes(f));
-      if (used.length === 1) {
-        s.format = used[0];
-        s.formatDetected = true;
-        s.formatOptions = [];
-      } else {
-        s.formatDetected = false;
-        s.needs.unshift('format');
-      }
-    }
-    for (const [i, s] of sources.entries()) {
-      const known = s.company ? approved.get(companyKey(s.company)) : undefined;
-      if (!reports[i] || !s.format || !known?.length || known.includes(s.format)) continue;
-      if (choices[i]?.confirmSource) continue;
-      s.needs.push('source');
-      s.knownSources = known;
+      const source = approvedOf(s);
+      if (reads[i] || s.error || s.format || s.formatOptions.length > 0) continue;
+      if (!source || !sourceFormat(source).available) continue;
+      const attempt = { ...s };
+      const read = this.read(files[i], source, choices[i] ?? {}, attempt);
+      if (!read) continue; // It isn't that format either: the user picks.
+      Object.assign(s, attempt, { format: source, formatDetected: true });
+      reads[i] = read;
     }
 
+    for (const [i, s] of sources.entries()) {
+      if (!reads[i] && !s.error && !s.format && s.formatOptions.length === 0) {
+        s.needs.push('format');
+      }
+      if (!reads[i]) continue;
+      // A layout several sources share: the company's approved source decides, when it's
+      // one of them; otherwise the user picks.
+      if (!s.format && s.formatOptions.length > 0) {
+        const source = approvedOf(s);
+        if (source && s.formatOptions.includes(source)) {
+          s.format = source;
+          s.formatDetected = true;
+          s.formatOptions = [];
+        } else {
+          s.formatDetected = false;
+          s.needs.push('format');
+        }
+      }
+      if (!s.company) s.needs.push('company');
+      if (!s.unit && s.units.length === 0) s.needs.push('unit');
+      if (reads[i]!.report.needsPeriod) s.needs.push('period');
+    }
+
+    // Owners switch ELD providers: a file in a format other than the company's approved
+    // source waits. A company with none yet: its first file in this upload sets it.
+    const firstFormat = new Map<string, SourceFormatId>();
+    for (const [i, s] of sources.entries()) {
+      if (!reads[i] || !s.format || !s.company) continue;
+      const key = companyKey(s.company);
+      const source = approved.get(key) ?? firstFormat.get(key);
+      if (!source) {
+        firstFormat.set(key, s.format);
+        continue;
+      }
+      if (source === s.format || choices[i]?.confirmSource) continue;
+      s.needs.push('source');
+      s.knownSource = source;
+    }
+
+    const warnings: string[] = [];
     const ready: ReadyReport[] = [];
     for (const [i, s] of sources.entries()) {
-      const read = reports[i];
+      const read = reads[i];
       if (!read || s.needs.length > 0) continue;
       warnings.push(...read.warnings);
       const trucks = read.report.trucks ?? [{ unit: s.unit!, trips: read.report.trips }];
@@ -301,6 +375,7 @@ export class ConversionService implements OnModuleInit {
           unit: truck.unit,
           sourceFile: s.name,
           format: s.format!,
+          confirmed: !!choices[i]?.confirmSource,
           report: {
             ...read.report,
             trips: truck.trips,
@@ -311,6 +386,87 @@ export class ConversionService implements OnModuleInit {
       }
     }
     return { files: sources, ready, warnings };
+  }
+
+  /**
+   * Reads one file as `format` into `source` (its company, unit #s, period); null with
+   * `source.error` set when the importer refuses it.
+   */
+  private read(
+    file: UploadedFile,
+    format: SourceFormatId,
+    choice: SourceChoice,
+    source: SourceFile,
+  ): Read | null {
+    const warnings: string[] = [];
+    let report: SourceReport;
+    try {
+      report = IMPORTERS[format].read(file, warnings, {
+        ...(choice.period ? { period: fromPeriod(choice.period) } : {}),
+      });
+    } catch (e) {
+      if (!(e instanceof ConversionError)) throw e;
+      source.error = e.message;
+      return null;
+    }
+
+    if (!source.company && report.detectedCompany) {
+      source.company = report.detectedCompany;
+      source.companyOrigin = 'file';
+    }
+    if (report.trucks) {
+      // Several trucks: each unit # comes from the file; one typed for the file can't apply.
+      source.units = report.trucks.map((t) => t.unit);
+      source.unit = null;
+      source.unitDetected = true;
+    } else if (!source.unit && report.detectedUnit) {
+      source.unit = report.detectedUnit;
+      source.unitDetected = true;
+    }
+    if (report.suggestedPeriod !== undefined) {
+      source.suggestedPeriod = report.suggestedPeriod && toPeriod(report.suggestedPeriod);
+      source.period = choice.period && !report.needsPeriod ? choice.period : null;
+    }
+    return { report, warnings };
+  }
+
+  /**
+   * No company typed or in the file: the input sub-folder it was dropped in. A file nothing
+   * recognises gets it too, so the company's approved source can be tried on it.
+   */
+  private fromFolders(
+    sources: SourceFile[],
+    hints: FileHint[],
+    canonical: (name: string) => string,
+  ): void {
+    for (const [i, s] of sources.entries()) {
+      const folder = hints[i]?.folderCompany?.trim();
+      if (s.company || !folder || s.error) continue;
+      s.company = canonical(folder);
+      s.companyOrigin = 'folder';
+    }
+  }
+
+  /**
+   * Still no company: the saved company running the file's unit # (each of them, for a
+   * file with several trucks; a typed one for a file nothing recognises). One → it;
+   * several → the user picks among them.
+   */
+  private async fromUnits(sources: SourceFile[]): Promise<void> {
+    const unitsOf = (s: SourceFile) => (s.units.length > 0 ? s.units : s.unit ? [s.unit] : []);
+    const open = sources.filter((s) => !s.company && !s.error && unitsOf(s).length > 0);
+    if (open.length === 0) return;
+    const owners = await this.companies.ownersOfUnits(open.flatMap(unitsOf));
+    for (const s of open) {
+      const [first, ...rest] = unitsOf(s).map((u) => owners.get(u) ?? []);
+      const common = first.filter((name) => rest.every((names) => names.includes(name)));
+      if (common.length === 1) {
+        s.company = common[0];
+        s.companyOrigin = 'unit';
+      } else if (common.length > 1) {
+        s.companyOptions = common;
+      }
+    }
   }
 
   private resolveOutput(name: string): string {
@@ -354,7 +510,8 @@ const NEED_TEXT: Record<SourceNeed, string> = {
   format: 'pick its source format',
   company: 'enter the company name',
   unit: 'enter the unit #',
-  source: 'confirm converting it from a source new for this company',
+  period: 'enter the dates it covers',
+  source: "confirm converting it from a source other than the company's approved one",
 };
 
 /** One readable 400 message for everything blocking a conversion. */
@@ -377,8 +534,8 @@ function usDate(value: string): Date {
 
 /**
  * What a saved company file teaches the company list: its trucks and their end
- * odometers, the formats converted (now approved), and each truck's source and
- * latest trip end.
+ * odometers, the format converted (now its approved source: a confirmed switch wins),
+ * and each truck's source and latest trip end.
  */
 function recordEntry(output: CompanyOutput, ready: ReadyReport[]): RecordEntry {
   const mine = ready.filter((r) => companyKey(r.company) === companyKey(output.company));
@@ -392,11 +549,70 @@ function recordEntry(output: CompanyOutput, ready: ReadyReport[]): RecordEntry {
       latest.set(key, { unit: trip.unit, source: formatOf.get(key)!, periodEnd: end });
     }
   }
+  const confirmed = mine.filter((r) => r.confirmed);
   return {
     company: output.company,
     units: output.units,
     odometers: output.odometers,
-    sources: [...new Set(mine.map((r) => r.format))],
+    source: (confirmed[confirmed.length - 1] ?? mine[0])?.format,
     activity: [...latest.values()],
   };
+}
+
+/** M/D/YYYY → YYYY-MM-DD. */
+function isoOf(value: string): string {
+  return isoDay(usDate(value));
+}
+
+/**
+ * The history rows for one saved company file: one per truck per source file, each with
+ * its trips. A trip's end odometer is the file's own, else Begin Odo + its miles; neither
+ * is known when Begin Odo was the placeholder.
+ */
+function historyRecords(
+  output: CompanyOutput,
+  outputFile: string,
+  ready: ReadyReport[],
+  origin: HistoryOrigin,
+): HistoryRecord[] {
+  const groups = new Map<string, TripSummary[]>();
+  for (const trip of output.trips) {
+    const key = `${truckKey(trip.company, trip.unit)}\u001f${trip.sourceFile}`;
+    groups.set(key, [...(groups.get(key) ?? []), trip]);
+  }
+  return [...groups.values()].map((trips) => {
+    const { company, unit, sourceFile, distanceUnit } = trips[0];
+    const report = ready.find(
+      (r) =>
+        companyKey(r.company) === companyKey(company) &&
+        r.unit === unit &&
+        r.sourceFile === sourceFile,
+    )!;
+    return {
+      company,
+      unit,
+      origin,
+      source: report.format,
+      sourceFile,
+      outputFile,
+      distanceUnit,
+      trips: trips.map((t) => {
+        const begin = t.beginOdoIsPlaceholder ? null : t.beginOdo;
+        const end =
+          t.fileOdometer && t.fileOdometer.begin === begin
+            ? t.fileOdometer.end
+            : begin === null
+              ? null
+              : String(Math.round((Number(begin) + t.totalDistance) * 10) / 10);
+        return {
+          beginDate: isoOf(t.beginDate),
+          endDate: isoOf(t.endDate),
+          beginOdo: begin,
+          endOdo: end,
+          distance: t.totalDistance,
+          states: t.states,
+        };
+      }),
+    };
+  });
 }

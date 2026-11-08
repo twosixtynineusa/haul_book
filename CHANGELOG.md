@@ -2,6 +2,78 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Swift ELD and Vista ELD importers (Excel .xls)
+- **Swift ELD and Vista ELD are built sources**: the "IFTA Report" Excel workbook
+  (`IFTA_Report*.xls`, `importers/ifta-spreadsheet.ts`, docs/data-contracts.md §6, v1). Labels
+  "Swift ELD — IFTA Report (Excel)" and "Vista ELD — IFTA Report (Excel)". Every provider with a
+  sample export is now built; the placeholder importers (`placeholders.ts`) are gone.
+  - Both providers export the same workbook, so like Bellfam ELD / HOS 247 the file gets
+    `formatOptions: [swift, vista-eld]` and the company's approved source settles it, or the
+    user picks.
+  - Read from the "All trucks" sheet: company from "Company Name:", one trip per truck for the
+    report's period, one leg per state in file order, whole miles (half up), each truck's TOTAL
+    row kept as the report total. Several trucks per file convert as separate trucks.
+  - All 9 real samples (2 Swift ELD, 7 Vista ELD; kept locally, not in the repo) convert without
+    warnings.
+- **`conversion/xls.ts`: an in-house reader for legacy `.xls`** (OLE2 compound file + BIFF8
+  records: shared strings across CONTINUE records, LABEL, NUMBER, RK, MULRK, BOOLERR, FORMULA
+  results), values only. No spreadsheet library was added. Modern `.xlsx` still can't be read
+  (ROADMAP).
+- **Tests:** a test-only `.xls` writer (`test/helpers/xls-writer.ts`) builds a made-up workbook
+  laid out cell for cell like the real export (`test/helpers/ifta-report.ts`), with a
+  hand-derived golden ProMiles file; specs for the reader (every record type, strings split
+  mid-CONTINUE, the mini stream, refusals) and the importer (detection, one and several
+  trucks, km column, multi-month warning, eight broken files); an e2e case for the pick and
+  the approved source settling the next file. The "importer not built yet" tests now pick a
+  format that can't read the file.
+
+## 2026-11-07 — Motive distance summary, one approved source, matching by unit #, history
+- **Motive's distance summary converts** (`…distance_summary_by_vehicle.csv`), alongside the trip
+  report detail. Both are the `motive` source (label "Motive — IFTA Trip Report or Distance
+  Summary"); docs/data-contracts.md §5 is now v2 (5a detail, 5b summary).
+  - The summary has no dates, so the file `needs: period` until the user gives the dates it
+    covers (`SourceChoice.period`, inside one quarter). The month before its export timestamp is
+    offered in one click (`suggestedPeriod`), never used on its own. Input-folder files wait the
+    same way (new inbox columns `period_begin` / `period_end`).
+  - One trip per truck over the period; one leg per state in file order, whole miles (half up).
+  - The ProMiles writer's "same month in two files" check now covers every month a trip spans.
+  - The real summary sample (16 states) converts without warnings once a period is given.
+- **HOS 247** is written with a space everywhere (labels, docs, messages). The id stays `hos247`.
+- **One approved source per company** (`Company.source`, replacing the `sources` list; migration
+  `single_source_and_history`). Each company kept the source it was approved for last.
+  - Confirming a file from another source makes that source the approved one, **replacing** the
+    old: files from the old source now wait for confirmation.
+  - Within one upload, a company with no source yet takes its first file's format; other formats
+    for it wait for confirmation.
+  - The Companies tab shows a single "Approved source" drop-down; picking another replaces it
+    (after a confirm).
+- **Company from the unit #, in the portal too.** A file with no company of its own (after the
+  input subfolder) takes the one saved company running its unit # (every unit #, for a file with
+  several trucks), marked "by unit #". When several companies run it, the file `needs: company`
+  with `companyOptions` listing them, and the portal asks which. A file nothing recognises is
+  tried as its company's approved source (company typed, from the subfolder, or matched from a
+  typed unit #). `SourceFile.companyDetected` became `companyOrigin` (`user`/`file`/`folder`/`unit`).
+  - The inbox now passes its subfolder as a hint after the file's own company, as CLAUDE.md says
+    (it used to override it).
+- **Company and unit # pickers are drop-down lists you can also type in** (`combobox.tsx`), in the
+  upload step and the input folder card: the arrow shows every saved company (with its approved
+  source and truck count) or the company's trucks (every saved truck, with its companies, when no
+  company is set); typing narrows the list, and a new value is kept as typed.
+- **Conversion history.** Every saved conversion (portal or input folder) is logged in Postgres
+  (`conversions`), one row per truck per source file: company, unit #, source, file names, date
+  range, Begin and End odometer, total miles and each trip. Links follow company merges and go
+  null on delete; the names stay as written.
+  - **History tab** (`/history`): newest first, searchable, a row opens its trips, download link.
+  - **Truck page** (`/trucks/<id>`), opened by clicking a unit # on the Companies or History tab:
+    company and approved source, details (editable), totals (reports, miles, dates covered, latest
+    end odometer) and every report converted for the truck.
+  - API: `GET /api/v1/history`, `GET /api/v1/trucks/:id` (`contracts/history.ts`).
+  - History starts with this version; earlier conversions aren't listed.
+- **Tests:** a made-up distance summary fixture and its hand-derived golden ProMiles file; specs for
+  the summary (needs period, suggestion, golden output, broken files); e2e and input-folder cases
+  for the period, unit-# matching and the several-companies question; single-source cases; a new
+  history integration spec; web cases for the pickers, periods and history helpers.
+
 ## 2026-11-07 — Automatic daily updates
 - **`make update`**: `git fetch`; when the branch's remote has new commits, `git pull --ff-only`,
   then `make down`, `make rebuild` and `make up`. With no new commits nothing is pulled or rebuilt,

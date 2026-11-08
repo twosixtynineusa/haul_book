@@ -8,15 +8,18 @@ import {
   type DistanceUnit,
   type Leg,
   type PeriodTrip,
+  type ReadOptions,
   type ReportTruck,
   type SourceReport,
 } from '../common';
 import type { Importer } from './types';
 
 /**
- * Motive "IFTA Trip Report" detail CSV (docs/data-contracts.md §5), e.g.
- * `1794000000-trip_reports_detail_by_vehicle.csv`. One row per state segment, newest first,
- * each vehicle's rows in a block of their own:
+ * Motive's two IFTA CSV exports (docs/data-contracts.md §5). Both may hold several vehicles,
+ * each converted as its own truck (the unit # is the Vehicle), and neither has a company.
+ *
+ * 1. The "IFTA Trip Report" detail, e.g. `1794000000-trip_reports_detail_by_vehicle.csv`.
+ * One row per state segment, newest first, each vehicle's rows in a block of their own:
  *
  *     Date,Vehicle,Jurisdiction,Distance (mi),Odometer Start,Odometer End,Manual Odo Edit,
  *       Latitude Start,Longitude Start,Latitude End,Longitude End
@@ -24,14 +27,22 @@ import type { Importer } from './types';
  *     …
  *
  * Comma-separated, LF, no BOM; full state names; odometers in whole miles with thousands
- * separators. No company in the file. The unit # is the Vehicle; a file may hold several
- * vehicles, each converted as its own truck. Each vehicle's rows (ordered by odometer) make
- * one trip per month, with one leg per state from its first to its last day that month, in
- * order of first entry. Legs get whole miles (half up); the exact sum is the report's total.
- * The month's first Odometer Start and last Odometer End are the trip's own odometer.
+ * separators. Each vehicle's rows (ordered by odometer) make one trip per month, with one
+ * leg per state from its first to its last day that month, in order of first entry. Legs
+ * get whole miles (half up); the exact sum is the report's total. The month's first
+ * Odometer Start and last Odometer End are the trip's own odometer.
  *
- * Motive's "distance summary by vehicle" CSV has no dates, so it can't become a trip: it's
- * recognised only to say which report to export instead.
+ * 2. The "distance summary by vehicle", e.g. `1794000000-distance_summary_by_vehicle.csv`:
+ *
+ *     Vehicle,Jurisdiction,Distance (mi),Fuel (gal)
+ *     710,Arizona,397.97,0.000
+ *     710,Montana,"1,480.01",0.000
+ *
+ * One row per vehicle and state, no dates and no odometer. The user gives the period it
+ * covers (ReadOptions.period, inside one quarter); without one the file `needsPeriod`. Each
+ * vehicle becomes ONE trip over that period, one leg per state in file order, whole miles
+ * (half up). The number before the dash is when it was exported (Unix seconds): the month
+ * before is offered as the likely period. Fuel is not read.
  */
 
 const DETAIL_RE =
@@ -182,27 +193,111 @@ function odometerWarnings(file: string, unit: string, rows: Row[], warnings: str
   }
 }
 
-export function readMotive(
-  file: { name: string; bytes: Buffer },
-  warnings: string[],
-): SourceReport {
-  const kind = detectMotive(file.bytes);
-  if (kind === 'summary') {
-    throw new ConversionError(
-      `${file.name}: this is Motive's distance summary, which has no dates, so it can't become ` +
-        `ProMiles trips. In Motive, export the IFTA trip report detail by vehicle ` +
-        `(…trip_reports_detail_by_vehicle.csv) instead`,
-    );
-  }
-  if (kind !== 'detail') throw new ConversionError(`${file.name}: not a Motive IFTA trip report`);
-
-  const records: string[][] = parse(decodeText(file.bytes).replace(/^\uFEFF/, ''), {
+function records(file: { bytes: Buffer }): string[][] {
+  return parse(decodeText(file.bytes).replace(/^\uFEFF/, ''), {
     relax_column_count: true,
     relax_quotes: true,
     skip_empty_lines: true,
     trim: true,
   });
-  const header = records[0].map((h) => h.toLowerCase());
+}
+
+/** One SourceReport for the vehicles read: `trucks` when there are several. */
+function reportOf(trucks: ReportTruck[], distanceUnit: DistanceUnit): SourceReport {
+  if (trucks.length === 1) {
+    return {
+      trips: trucks[0].trips,
+      distanceUnit,
+      detectedUnit: trucks[0].unit,
+      detectedCompany: null,
+    };
+  }
+  return { trips: [], distanceUnit, detectedUnit: null, detectedCompany: null, trucks };
+}
+
+const EXPORTED_RE = /^(\d{10}|\d{13})-/;
+
+/**
+ * `1794077653-distance_summary_by_vehicle.csv` was exported on Nov 7, 2026, so it most likely
+ * covers October 2026: the whole month before. Null when the name carries no timestamp.
+ */
+export function suggestedMotivePeriod(name: string): [Date, Date] | null {
+  const m = EXPORTED_RE.exec(name.split(/[\\/]/).pop() ?? name);
+  if (!m) return null;
+  const exported = new Date(m[1].length === 13 ? Number(m[1]) : Number(m[1]) * 1000);
+  if (Number.isNaN(exported.getTime())) return null;
+  const [y, mo] = [exported.getUTCFullYear(), exported.getUTCMonth()];
+  return [new Date(Date.UTC(y, mo - 1, 1)), new Date(Date.UTC(y, mo, 0))];
+}
+
+/** The distance summary: per vehicle, one trip over the period the user gave. */
+function readSummary(
+  file: { name: string; bytes: Buffer },
+  period: [Date, Date] | undefined,
+): SourceReport {
+  const lines = records(file);
+  const header = lines[0].map((h) => h.toLowerCase());
+  const col = (name: string) => header.findIndex((h) => h.startsWith(name));
+  const [cVehicle, cState, cMiles] = ['vehicle', 'jurisdiction', 'distance'].map(col);
+  const distanceUnit: DistanceUnit = header[cMiles].includes('(km)') ? 'K' : 'M';
+
+  /** Vehicle → state → exact miles, both in file order. */
+  const byVehicle = new Map<string, Map<string, number>>();
+  for (const [i, cells] of lines.entries()) {
+    if (i === 0 || cells.every((c) => !c)) continue;
+    const where = `${file.name}:${i + 1}`;
+    const unit = cells[cVehicle] ?? '';
+    if (!unit) throw new ConversionError(`${where}: no Vehicle`);
+    const state = stateCode(cells[cState] ?? '');
+    if (!state) {
+      throw new ConversionError(`${where}: unknown state/province "${cells[cState] ?? ''}"`);
+    }
+    const [miles] = parseDistance(cells[cMiles] ?? '', where);
+    const states = byVehicle.get(unit) ?? new Map<string, number>();
+    byVehicle.set(unit, states);
+    states.set(state, (states.get(state) ?? 0) + Number(miles));
+  }
+  if (byVehicle.size === 0) throw new ConversionError(`${file.name}: no distance rows`);
+
+  const trucks: ReportTruck[] = [...byVehicle].map(([unit, states]) => ({
+    unit,
+    trips: period
+      ? [
+          {
+            period,
+            reportedTotal: exact([...states.values()].reduce((a, b) => a + b, 0)),
+            // Every leg spans the whole period: the summary doesn't say when each state was.
+            legs: [...states].map(([state, miles]): Leg => ({
+              state,
+              begin: period[0],
+              end: period[1],
+              distance: String(Math.round(exact(miles))),
+            })),
+            odometer: null,
+          },
+        ]
+      : [],
+  }));
+  return {
+    ...reportOf(trucks, distanceUnit),
+    ...(period ? {} : { needsPeriod: true }),
+    suggestedPeriod: suggestedMotivePeriod(file.name),
+  };
+}
+
+export function readMotive(
+  file: { name: string; bytes: Buffer },
+  warnings: string[],
+  options: ReadOptions = {},
+): SourceReport {
+  const kind = detectMotive(file.bytes);
+  if (kind === 'summary') return readSummary(file, options.period);
+  if (kind !== 'detail') {
+    throw new ConversionError(`${file.name}: not a Motive IFTA trip report or distance summary`);
+  }
+
+  const lines = records(file);
+  const header = lines[0].map((h) => h.toLowerCase());
   const col = (name: string) => header.findIndex((h) => h.startsWith(name));
   const [cDate, cVehicle, cState, cMiles, cStart, cEnd, cManual] = [
     'date',
@@ -216,7 +311,7 @@ export function readMotive(
   const distanceUnit: DistanceUnit = header[cMiles].includes('(km)') ? 'K' : 'M';
 
   const byVehicle = new Map<string, Row[]>();
-  for (const [i, cells] of records.entries()) {
+  for (const [i, cells] of lines.entries()) {
     if (i === 0 || cells.every((c) => !c)) continue;
     const where = `${file.name}:${i + 1}`;
     const unit = cells[cVehicle] ?? '';
@@ -245,20 +340,12 @@ export function readMotive(
     odometerWarnings(file.name, unit, rows, warnings);
     return { unit, trips: tripsOf(rows) };
   });
-
-  if (trucks.length === 1) {
-    return {
-      trips: trucks[0].trips,
-      distanceUnit,
-      detectedUnit: trucks[0].unit,
-      detectedCompany: null,
-    };
-  }
-  return { trips: [], distanceUnit, detectedUnit: null, detectedCompany: null, trucks };
+  return reportOf(trucks, distanceUnit);
 }
 
 export const motiveImporter: Importer = {
   id: 'motive',
   detect: (file) => /\.csv$/i.test(file.name) && detectMotive(file.bytes) !== null,
   read: readMotive,
+  suggestPeriod: suggestedMotivePeriod,
 };
