@@ -39,6 +39,10 @@
 - [ ] Convert an **Ezlogz** Mileage Report, pick the company it belongs to, and import it into
   FuelTaxOnline under that customer. Confirm "Failures: 0" and that the trip dates (first to last
   day driven that month) are accepted.
+- [ ] Convert a **Motive** trip report (the one with two trucks, if possible), pick the company,
+  and import it into FuelTaxOnline. Confirm "Failures: 0" and that Begin Odo is the truck's real
+  odometer. Before filing, check any "odometer moves with no state row" warning with the carrier:
+  one real sample shows a week of miles in no state.
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles
   imports one trip per month. Then drop two trucks' reports together and confirm both import.
 - [ ] **Windows:** on a Windows PC, follow README → Setup → Windows. Test both routes, neither of

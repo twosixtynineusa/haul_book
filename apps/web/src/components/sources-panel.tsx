@@ -120,7 +120,9 @@ export function SourcesPanel({
         const draft = drafts[key] ?? {};
         const source = sources?.[i]?.name === file.name ? sources[i] : undefined;
         const company = shownValue(draft.company, source?.company);
-        const unit = shownValue(draft.unit, source?.unit);
+        // A file with several trucks: their unit #s come from the file and can't be edited.
+        const manyUnits = (source?.units.length ?? 0) > 1;
+        const unit = manyUnits ? source!.units.join(', ') : shownValue(draft.unit, source?.unit);
         const format = draft.format ?? source?.format ?? '';
         const needs = new Set(source?.needs ?? []);
         const unitsListId = `saved-units-${i}`;
@@ -226,19 +228,22 @@ export function SourcesPanel({
               </label>
 
               <label className="block text-xs font-medium text-muted-foreground">
-                Unit #
-                <Found show={!!source?.unitDetected && draft.unit === undefined}>
-                  from file name
+                {manyUnits ? `${source!.units.length} trucks` : 'Unit #'}
+                <Found show={!!source?.unitDetected && (manyUnits || draft.unit === undefined)}>
+                  from file
                 </Found>
                 <input
                   type="text"
                   list={unitsListId}
                   value={unit}
-                  readOnly={readOnly}
+                  readOnly={readOnly || manyUnits}
+                  title={
+                    manyUnits ? 'Each truck in this file converts with its own unit #' : undefined
+                  }
                   placeholder="e.g. 22"
                   onChange={(e) => onChange(key, { unit: e.target.value })}
                   aria-invalid={needs.has('unit')}
-                  className={cx(fieldClass(needs.has('unit'), readOnly), 'mt-1')}
+                  className={cx(fieldClass(needs.has('unit'), readOnly || manyUnits), 'mt-1')}
                 />
                 <datalist id={unitsListId}>
                   {unitsFor(companies, company).map((u) => (

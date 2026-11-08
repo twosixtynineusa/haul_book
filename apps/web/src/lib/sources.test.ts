@@ -44,6 +44,7 @@ describe('sources', () => {
       companyDetected: false,
       unit: null,
       unitDetected: false,
+      units: [],
       formatOptions: [],
       needs: [],
       knownSources: [],

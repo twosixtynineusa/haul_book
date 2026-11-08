@@ -24,7 +24,7 @@ Everything runs locally in Docker: nothing is uploaded anywhere, and there is no
 | **Bellfam ELD**: IFTA Mileage By State (CSV) | ✅ supported: company and unit # read from the file |
 | **Ezlogz**: Mileage Report (CSV) | ✅ supported: unit # read from the file, company picked or typed |
 | **HOS247**: IFTA Mileage By State (CSV) | ✅ supported: same layout as Bellfam ELD, so the company's source decides, or you pick |
-| **Motive** | 🕒 planned |
+| **Motive**: IFTA Trip Report, detail by vehicle (CSV) | ✅ supported: unit #s and odometers read from the file (several trucks per file are fine), company picked or typed |
 | **Swift ELD** | 🕒 planned |
 | **Vista ELD** | 🕒 planned |
 
@@ -235,6 +235,9 @@ path; your user folder is shared by default.
    later files for that company use the same answer.
    For Ezlogz, export the **Mileage Report** CSV for one unit (any number of months); the unit #
    is read from the file, the company isn't in it, and each month becomes its own trip.
+   For Motive, export the **IFTA trip report detail by vehicle** CSV
+   (`…trip_reports_detail_by_vehicle.csv`), not the distance summary, which has no dates. A file
+   may hold several trucks: each converts with its own unit # and its real odometer readings.
 2. **Company & unit.** Each file shows its source format (detected, or picked from a dropdown) and
    its company and unit #. Fields read from the file are marked; otherwise pick from the saved
    list or type a new one. New companies and units are saved when you convert. "Use for all
@@ -242,9 +245,11 @@ path; your user folder is shared by default.
 3. **Review trips.** There is one trip per truck per month, with its period, states and miles. You
    get a warning if the state miles don't add up to the report's own total.
    - **Begin odometer** is optional. If you enter a truck's reading once, later months carry it
-     forward (plus the miles driven). Where it ends is saved, so the truck's next conversion
-     starts there by itself ("Saved: end of …"). Typing a value overrides the saved one. With
-     nothing typed or saved, `1` is written: ProMiles requires a value, and `1` imports fine.
+     forward (plus the miles driven). Motive files carry real odometer readings, so their trips
+     start there by themselves ("From the file") unless you type one. Where it ends is saved, so
+     the truck's next conversion starts there by itself ("Saved: end of …"). Typing a value
+     overrides the saved one. With nothing typed or saved, `1` is written: ProMiles requires a
+     value, and `1` imports fine.
 4. **Convert & save.** The file is written to your output folder and listed in the **Output
    folder** panel with a download link.
 5. **Import into ProMiles.** In FuelTaxOnline, select that company as the customer, open

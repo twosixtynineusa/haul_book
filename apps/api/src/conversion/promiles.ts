@@ -23,8 +23,9 @@ import {
  * with one leg per state ordered by first entry. ProMiles imports a file under
  * ONE customer, so each company gets its own file. ProMiles rejects a trip row
  * unless columns A–I all have a value, so Begin Odo is always written: the
- * reading typed for the truck, else the one saved from its previous conversion,
- * carried forward across later periods; or DEFAULT_BEGIN_ODO.
+ * reading typed for the truck (carried forward across later periods), else the
+ * period's own odometer when the source records one (Motive), else the one saved
+ * from its previous conversion (carried forward); or DEFAULT_BEGIN_ODO.
  */
 
 export const PROMILES_HEADER = [
@@ -192,12 +193,16 @@ export function writeProMiles(
         seen.set(key, sourceFile);
       }
 
-      // A real reading carries forward: next period starts where this one ended.
+      // A real reading carries forward: next period starts where this one ended. Without a
+      // typed one, a period whose source records the odometer starts and ends there instead.
       const truckId = truckKey(company, unit);
       const reading = odometers[truckId];
+      const fromFile = (trip: PeriodTrip) => (reading === undefined ? trip.odometer : null);
       let odo: number | null = reading !== undefined ? Number(reading) : null;
-      const stored = reading === undefined ? saved.get(truckId) : undefined;
-      const first = truck.trips[0] && dayOf(startOf(truck.trips[0].trip));
+      const firstTrip = truck.trips[0]?.trip;
+      const stored =
+        reading === undefined && firstTrip && !fromFile(firstTrip) ? saved.get(truckId) : undefined;
+      const first = firstTrip && dayOf(startOf(firstTrip));
       if (stored && first) {
         const asOf = fmtDate(stored.asOf);
         if (first > stored.asOf) {
@@ -231,6 +236,8 @@ export function writeProMiles(
           );
         }
 
+        const fileOdo = fromFile(trip);
+        if (fileOdo) odo = fileOdo.begin;
         const beginOdo = odo === null ? DEFAULT_BEGIN_ODO : fmtOdo(odo);
         legs.forEach((leg, i) => {
           const head =
@@ -252,8 +259,12 @@ export function writeProMiles(
           states: legs.map((leg) => leg.state),
           totalDistance: Math.round(summed * 100) / 100,
           reportedTotal: trip.reportedTotal,
+          fileOdometer: trip.odometer
+            ? { begin: fmtOdo(trip.odometer.begin), end: fmtOdo(trip.odometer.end) }
+            : null,
         });
-        if (odo !== null) odo += summed;
+        if (fileOdo) odo = fileOdo.end;
+        else if (odo !== null) odo += summed;
         lastEnd = end;
       }
       if (odo !== null && lastEnd) {

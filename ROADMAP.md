@@ -22,7 +22,6 @@ all of them are kept locally (git-ignored, MANUAL_TODO §B). To build one:
 
 | Provider | Placeholder id | Sample format | To build |
 |---|---|---|---|
-| **Motive** | `motive` | CSVs: `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`), `trip_reports_detail_by_vehicle` | Pick which report to import (the summary looks closest), and find the company and period. |
 | **Swift ELD** | `swift` | `IFTA_Report*.xls` (legacy Excel) | Needs an Excel reader first (below). |
 | **Vista ELD** | `vista-eld` | `IFTA_Report*.xls` (legacy Excel) | Same; check whether Swift ELD and Vista ELD share one layout. |
 

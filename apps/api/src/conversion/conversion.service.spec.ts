@@ -13,6 +13,7 @@ const trip = (unit: string, beginDate: string): TripSummary => ({
   states: ['TX'],
   totalDistance: 1,
   reportedTotal: 1,
+  fileOdometer: null,
 });
 
 const name = (company: string, units: string[], months: string[]) =>

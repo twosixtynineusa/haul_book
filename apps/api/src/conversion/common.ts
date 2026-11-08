@@ -30,6 +30,17 @@ export interface PeriodTrip {
   /** The source's own total for the period, used as a cross-check. */
   reportedTotal: number | null;
   legs: Leg[];
+  /**
+   * The truck's odometer at the start and end of the period, when the source records it
+   * (Motive). Begin Odo uses it unless a reading is typed for the truck.
+   */
+  odometer?: { begin: number; end: number } | null;
+}
+
+/** One truck of a file that holds several (see SourceReport.trucks). */
+export interface ReportTruck {
+  unit: string;
+  trips: PeriodTrip[];
 }
 
 /** A truck's odometer where an earlier conversion ended (Unit.odometer in Postgres). */
@@ -46,6 +57,11 @@ export interface SourceReport {
   /** Found in the file or its name; null = the user must supply it. */
   detectedUnit: string | null;
   detectedCompany: string | null;
+  /**
+   * Set when the file holds several trucks (Motive): each one's unit # and trips, converted
+   * as separate trucks. `trips` is then empty and `detectedUnit` null.
+   */
+  trucks?: ReportTruck[];
 }
 
 // prettier-ignore

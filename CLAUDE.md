@@ -3,8 +3,8 @@
 Instructions for AI agents working in this repo. Read before editing.
 
 ## What this is
-A local, single-user portal: ELD/telematics mileage reports (Wialon, Bellfam ELD, HOS247 and Ezlogz
-built; Motive, Swift ELD and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
+A local, single-user portal: ELD/telematics mileage reports (Wialon, Bellfam ELD, HOS247, Ezlogz and
+Motive built; Swift ELD and Vista ELD placeholders) → ProMiles TRIPSUMMARY2 CSV, one file per company, named by company +
 unit #, saved to a host folder (`OUTPUT_DIR` in `.env`) and downloadable. Reports dropped in the
 watched input folder (`INPUT_DIR`) convert automatically via a BullMQ worker. The saved company →
 unit list and the input-folder inbox live in Postgres 18 (Prisma). A Companies tab manages the
@@ -16,7 +16,7 @@ packages/shared/   @haulbook/shared — Zod HTTP contracts + constants (build fi
 apps/api/          NestJS:
   src/conversion/importers/   one Importer per source format (detect + read) — wialon.ts,
                               ifta-mileage-by-state.ts (Bellfam ELD + HOS247), ezlogz.ts,
-                              placeholders.ts
+                              motive.ts, placeholders.ts
   src/conversion/promiles.ts  ProMiles writer (pure): trucks → one CSV per company
   src/conversion/conversion.service.ts  detect → read → company/unit → preview / save + name files
   src/companies/              companies + trucks (Prisma): list, edit, merge, approved sources (/api/v1/companies)
@@ -38,7 +38,8 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
 - Never delete a source file: converted → `INPUT_DIR/archive/<YYYY-MM-DD>/<rel path>`, set aside
   → `INPUT_DIR/failed/`, both never overwriting (`_2`). Files needing input stay where they are.
 - Company precedence: user entry → the file → company subfolder → the single saved company with
-  that unit #. Same SHA-256 as an already-converted file → `duplicate`, archived, not converted.
+  that unit # (all of them, for a file with several trucks).
+  Same SHA-256 as an already-converted file → `duplicate`, archived, not converted.
 - Tests (`test/inbox.integration.spec.ts`) call `InboxService.scan()` directly against temp
   folders and override the queue token, so they need Postgres but not Redis.
 
@@ -80,6 +81,10 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   docs/data-contracts.md. See ROADMAP.md → "Source importers".
 - Company + unit #: user's entry wins, else what the file carries; otherwise the file `needs` it
   and conversion is refused. Every successful conversion records them (CompaniesService.record).
+- **Several trucks per file** (Motive): the importer returns `SourceReport.trucks`; the file gets
+  `units` (and `unit: null`), each truck becomes its own `TruckReport` with the file's unit #, and
+  a typed unit # is ignored. In the input folder the company is the one saved company running all
+  of them. Never merge two vehicles' miles into one truck.
 - **Source approval:** each company has approved source formats (`Company.sources`). Its first
   conversion approves that format; a saved company's file in any other format `needs: source` and
   waits (portal and input folder alike) until the user sends `confirmSource`, which converts it
@@ -99,9 +104,11 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   keep that test green. Never replace fixtures with real customer exports.
 - One file per company; one trip per truck per month; legs come from the state rows (crossing rows are skipped); the
   odometer carries forward across months.
-- Begin Odo precedence: the reading typed for the truck → its saved odometer (`Unit.odometer`,
-  only when the first trip starts after `odometerAsOf`) → `1`. Only real readings are saved
-  (never the placeholder), and a save never replaces a later period's reading.
+- Begin Odo precedence: the reading typed for the truck (carried forward) → the trip's own
+  odometer when the source records one (`PeriodTrip.odometer`, Motive; the next trip carries on
+  from its end) → its saved odometer (`Unit.odometer`, only when the first trip starts after
+  `odometerAsOf` and has no file odometer) → `1`. Only real readings are saved (never the
+  placeholder), and a save never replaces a later period's reading.
 - ProMiles rejects a trip unless **columns A–I** are all filled, so Begin Odo is never blank
   (`DEFAULT_BEGIN_ODO = '1'`).
 - A state row's Mileage goes in column H; ProMiles Toll Distance is always `0`.

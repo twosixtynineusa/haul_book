@@ -28,7 +28,7 @@ export type OdometerMap = z.infer<typeof OdometerMapSchema>;
 /**
  * A truck's odometer saved at the end of its latest conversion. When no reading is
  * typed for the truck, it becomes the Begin Odo of the truck's first trip, as long
- * as that trip starts after `asOf`.
+ * as that trip starts after `asOf` and its source file records no odometer of its own.
  */
 export const SavedOdometerSchema = z.object({
   reading: z.string(),
@@ -56,8 +56,13 @@ export const TripSummarySchema = z.object({
   states: z.array(z.string()),
   /** Sum of the per-state legs. */
   totalDistance: z.number(),
-  /** Wialon's own total for the period (month row), when the report has one. */
+  /** The report's own total for the period, when it has one. */
   reportedTotal: z.number().nullable(),
+  /**
+   * The source file's own odometer at the trip's start and end (Motive). Begin Odo is its
+   * `begin` unless a reading was typed for the truck.
+   */
+  fileOdometer: z.object({ begin: z.string(), end: z.string() }).nullable(),
 });
 export type TripSummary = z.infer<typeof TripSummarySchema>;
 

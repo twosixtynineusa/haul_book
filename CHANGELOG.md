@@ -2,6 +2,38 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Motive importer, several trucks per file, odometers from the file
+- **Motive is a built source**: the IFTA trip report detail by vehicle
+  (`…trip_reports_detail_by_vehicle.csv`, `importers/motive.ts`, docs/data-contracts.md §5, v1).
+  The picker calls it "Motive — IFTA Trip Report". Swift ELD and Vista ELD stay placeholders (§6).
+  - One trip per truck per month, from its rows in odometer order (the file is newest first),
+    one leg per state in order of first entry, whole miles (half up).
+  - Motive's distance summary is recognised but refused: it has no dates. The message says to
+    export the trip report detail instead.
+  - Warnings for odometer jumps of more than 10 mi with no state row (miles in no state) and
+    for manual odometer edits.
+  - The six real Motive trip reports (kept locally, not in the repo) convert. One warns about a
+    real week-long odometer gap.
+- **A file can hold several trucks.** Importers may return `SourceReport.trucks`. Each truck
+  converts on its own with the unit # the file gives it, and they share one ProMiles file per
+  company (`ACME-TRUCKING-LLC_units-Volvo-7-31_2026-10.csv`).
+  - `SourceFile.units` and inbox `units` list them. New inbox column `units` (migration
+    `inbox_units`).
+  - The portal and the input folder show the unit #s read-only, and a typed unit # is ignored.
+  - In the input folder, the company is the one saved company running every truck in the file.
+- **Begin Odo from the file.** A trip can carry the source's own odometer
+  (`PeriodTrip.odometer`, `TripSummary.fileOdometer`). The new precedence is typed reading →
+  the file's reading → the saved one → `1`. The next trip carries on from the file's end
+  reading, which is also what's saved for the truck's next conversion. The review table shows
+  "From the file", and its total column now says "Report total" instead of "Wialon total".
+- **Tests:**
+  - a made-up two-truck fixture with a hand-derived golden ProMiles file;
+  - a spec for detection, odometer order, Begin Odo precedence, CRLF/km, both warnings, the
+    summary refusal and six broken files;
+  - e2e and input-folder cases for a two-truck file;
+  - a web case for the Begin Odo preview.
+  - The "importer not built yet" tests now use Swift ELD.
+
 ## 2026-11-07 — Source names match the providers' registered names
 - Source labels now use each provider's name as registered on FMCSA's ELD list
   (eld.fmcsa.dot.gov): **Ezlogz** (Ezlogz Inc; was "EZLogz"), **Swift ELD** (Swift ELD, not

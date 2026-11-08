@@ -282,9 +282,15 @@ export class InboxService implements OnModuleInit {
     let preview = await this.conversion.preview([file], [choice], {});
     let source = preview.files[0];
 
-    // No company anywhere: if exactly one saved company runs this unit #, it's theirs.
-    if (source.needs.includes('company') && source.unit && !source.error) {
-      const owners = await this.companies.companiesWithUnit(source.unit);
+    // No company anywhere: if exactly one saved company runs this unit # (every one of them,
+    // for a file with several trucks), it's theirs.
+    const units = source.unit ? [source.unit] : source.units;
+    if (source.needs.includes('company') && units.length > 0 && !source.error) {
+      let owners = await this.companies.companiesWithUnit(units[0]);
+      for (const unit of units.slice(1)) {
+        const also = new Set(await this.companies.companiesWithUnit(unit));
+        owners = owners.filter((o) => also.has(o));
+      }
       if (owners.length === 1) {
         choice.company = owners[0];
         preview = await this.conversion.preview([file], [choice], {});
@@ -297,6 +303,7 @@ export class InboxService implements OnModuleInit {
       formatOptions: source.formatOptions,
       company: source.company,
       unit: source.unit,
+      units: source.units,
       sha256,
     };
     if (!preview.ready) {
@@ -438,6 +445,7 @@ export function toEntry(r: InboxFile): InboxEntry {
     ) as InboxEntry['formatOptions'],
     company: r.company ?? r.folderCompany,
     unit: r.unit,
+    units: r.units,
     needs: r.needs.filter((n) => SourceNeedSchema.safeParse(n).success) as InboxEntry['needs'],
     knownSources: r.knownSources.filter(
       (s) => SourceFormatIdSchema.safeParse(s).success,

@@ -38,6 +38,8 @@ export const InboxEntrySchema = z.object({
   formatOptions: z.array(SourceFormatIdSchema),
   company: z.string().nullable(),
   unit: z.string().nullable(),
+  /** When the file holds several trucks: their unit #s (`unit` is then null). Else empty. */
+  units: z.array(z.string()),
   needs: z.array(SourceNeedSchema),
   /** When `needs` has `source`: the formats the company was converted from so far. */
   knownSources: z.array(SourceFormatIdSchema),

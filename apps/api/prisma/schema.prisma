@@ -95,6 +95,8 @@ model InboxFile {
   format        String?
   company       String?
   unit          String?
+  /// When the file holds several trucks (Motive): their unit #s, from the file (`unit` is null).
+  units         String[]    @default([])
   /// What the user still has to supply (SourceNeed values).
   needs         String[]
   error         String?

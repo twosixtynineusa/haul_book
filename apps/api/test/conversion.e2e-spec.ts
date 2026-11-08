@@ -111,17 +111,17 @@ describe('Conversions (e2e)', () => {
   });
 
   it('asks for the format and unit when it can’t detect them', async () => {
-    const xlsx: [Buffer, string][] = [[Buffer.from('PK\u0003\u0004 not really'), 'motive.xlsx']];
+    const xlsx: [Buffer, string][] = [[Buffer.from('PK\u0003\u0004 not really'), 'swift.xlsx']];
     const unknown = await post('/api/v1/conversions/preview', [{ company: COMPANY }], xlsx);
     expect(unknown.body.files[0]).toMatchObject({ format: null, needs: ['format'] });
 
     const picked = await post(
       '/api/v1/conversions/preview',
-      [{ format: 'motive', company: COMPANY }],
+      [{ format: 'swift', company: COMPANY }],
       xlsx,
     ).expect(200);
-    expect(picked.body.files[0]).toMatchObject({ format: 'motive', formatDetected: false });
-    expect(picked.body.files[0].error).toMatch(/Motive files can't be converted yet/);
+    expect(picked.body.files[0]).toMatchObject({ format: 'swift', formatDetected: false });
+    expect(picked.body.files[0].error).toMatch(/Swift ELD files can't be converted yet/);
 
     const renamed = await post(
       '/api/v1/conversions/preview',
@@ -264,6 +264,38 @@ describe('Conversions (e2e)', () => {
       formatOptions: [],
       needs: [],
     });
+  });
+
+  it('converts a Motive file holding two trucks, each with its own unit # and odometer', async () => {
+    const name = '1794000000-trip_reports_detail_by_vehicle.csv';
+    const file: [Buffer, string][] = [[fixture(name), name]];
+    const held = await post('/api/v1/conversions/preview', [], file).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: 'motive',
+      formatDetected: true,
+      unit: null,
+      units: ['Volvo 7', '31'],
+      unitDetected: true,
+      needs: ['company'],
+    });
+
+    // A unit # typed for a multi-truck file can't apply to either truck, so it's ignored. (ACME
+    // was converted from other sources before, so Motive is confirmed as a new one.)
+    const choice = [{ company: COMPANY, unit: '99', confirmSource: true }];
+    const res = await post('/api/v1/conversions', choice, file).expect(201);
+    const result = ConversionResultSchema.parse(res.body);
+    expect(result.trips.map((t) => [t.unit, t.beginOdo, t.fileOdometer])).toEqual([
+      ['Volvo 7', '431000', { begin: '431000', end: '432160' }],
+      ['31', '1205330', { begin: '1205330', end: '1206148' }],
+    ]);
+    expect(result.outputs.map((o) => [o.name, o.units])).toEqual([
+      ['ACME-TRUCKING-LLC_units-Volvo-7-31_2026-10.csv', ['Volvo 7', '31']],
+    ]);
+    expect(fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8')).toBe(
+      fixture('promiles_expected_motive_2trucks_oct2026.csv').toString('utf8'),
+    );
+    // Each truck's end reading is saved for its next conversion: the file's Odometer End.
+    expect(companies.odometers.get(truckKey(COMPANY, '31'))?.reading).toBe(1206148);
   });
 
   it('writes one file per company and lets the user override the unit #', async () => {

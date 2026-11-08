@@ -12,7 +12,7 @@ export const SOURCE_FORMATS = [
   { id: 'bellamsp-anir', label: 'Bellfam ELD — IFTA Mileage By State', available: true },
   { id: 'ezlogz', label: 'Ezlogz — Mileage Report', available: true },
   { id: 'hos247', label: 'HOS247 — IFTA Mileage By State', available: true },
-  { id: 'motive', label: 'Motive', available: false },
+  { id: 'motive', label: 'Motive — IFTA Trip Report', available: true },
   { id: 'swift', label: 'Swift ELD', available: false },
   { id: 'vista-eld', label: 'Vista ELD', available: false },
 ] as const;
@@ -80,6 +80,11 @@ export const SourceFileSchema = z.object({
   companyDetected: z.boolean(),
   unit: z.string().nullable(),
   unitDetected: z.boolean(),
+  /**
+   * When the file holds several trucks (Motive): their unit #s, read from the file. Each
+   * converts as its own truck, `unit` is null, and a typed unit # is ignored. Else empty.
+   */
+  units: z.array(z.string()),
   /** What the user still has to supply before this file can be converted. */
   needs: z.array(SourceNeedSchema),
   /** When `needs` has `source`: the formats the company was converted from so far. */

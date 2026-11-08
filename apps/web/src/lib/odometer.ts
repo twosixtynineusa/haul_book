@@ -16,13 +16,16 @@ export interface TripOdometer {
   placeholder: boolean;
   /** Nothing typed for the truck, so its reading saved from the last conversion is used. */
   fromSaved: boolean;
+  /** Nothing typed for the truck, so this trip starts at the source file's own odometer. */
+  fromFile: boolean;
 }
 
 /**
- * Mirrors the converter: the reading entered for a truck (else the one the API
- * saved from its last conversion) applies to its first trip, and each later month
- * starts where the previous one ended (+ miles). Trips arrive from the API already
- * ordered by company, truck, then date.
+ * Mirrors the converter: the reading entered for a truck applies to its first trip,
+ * and each later month starts where the previous one ended (+ miles). With nothing
+ * entered, a trip whose source file records the odometer (Motive) starts and ends
+ * there; otherwise the reading the API saved from the truck's last conversion
+ * starts its first trip. Trips arrive from the API ordered by company, truck, date.
  */
 export function tripOdometers(
   trips: TripSummary[],
@@ -30,24 +33,33 @@ export function tripOdometers(
   saved: Record<string, SavedOdometer> = {},
 ): TripOdometer[] {
   const running = new Map<string, number | null>();
+  const typed = new Set<string>();
   const fromSaved = new Set<string>();
   return trips.map((trip) => {
     const key = truckKey(trip.company, trip.unit);
     const editable = !running.has(key);
     if (editable) {
-      const typed = (odometers[key] ?? '').trim();
-      if (!typed && saved[key]) fromSaved.add(key);
-      const parsed = OdometerReadingSchema.safeParse(typed || (saved[key]?.reading ?? ''));
-      running.set(key, parsed.success ? Number(parsed.data) : null);
+      const text = (odometers[key] ?? '').trim();
+      if (text) {
+        typed.add(key);
+        const entered = OdometerReadingSchema.safeParse(text);
+        running.set(key, entered.success ? Number(entered.data) : null);
+      } else {
+        const stored = trip.fileOdometer ? undefined : saved[key];
+        if (stored) fromSaved.add(key);
+        running.set(key, stored ? Number(stored.reading) : null);
+      }
     }
-    const odo = running.get(key) ?? null;
-    if (odo !== null) running.set(key, odo + trip.totalDistance);
+    const file = typed.has(key) ? null : trip.fileOdometer;
+    const odo = file ? Number(file.begin) : (running.get(key) ?? null);
+    running.set(key, file ? Number(file.end) : odo === null ? null : odo + trip.totalDistance);
     return {
       key,
       editable,
       value: odo === null ? DEFAULT_BEGIN_ODO : String(Math.round(odo * 10) / 10),
       placeholder: odo === null,
       fromSaved: fromSaved.has(key),
+      fromFile: !!file,
     };
   });
 }

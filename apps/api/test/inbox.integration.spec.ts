@@ -252,27 +252,46 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     expect(await settle()).toMatchObject({ needsInput: 1 });
   });
 
+  it('converts a Motive file holding two trucks for the one company running both', async () => {
+    const name = '1794000000-trip_reports_detail_by_vehicle.csv';
+    // XYZ also runs a unit 31, but only ACME runs both trucks in the file.
+    await companies.record([
+      { company: COMPANY, units: ['Volvo 7', '31'], sources: ['motive'] },
+      { company: 'XYZ FREIGHT LLC', units: ['31'], sources: ['motive'] },
+    ]);
+    drop(name, fixture(name));
+    expect(await settle()).toMatchObject({ converted: 1 });
+    expect((await inbox.list()).recent[0]).toMatchObject({
+      status: 'converted',
+      format: 'motive',
+      company: COMPANY,
+      unit: null,
+      units: ['Volvo 7', '31'],
+      outputs: ['ACME-TRUCKING-LLC_units-Volvo-7-31_2026-10.csv'],
+    });
+  });
+
   it('asks for the unit # and the format when the file doesn’t carry them', async () => {
     drop('october.csv');
-    drop('motive-q4.xlsx', Buffer.from('PK\u0003\u0004 not really excel'));
+    drop('excel-swift-q4.xlsx', Buffer.from('PK\u0003\u0004 not really excel'));
     await settle();
     const pending = [...(await inbox.list()).pending].sort((a, b) => a.name.localeCompare(b.name));
     expect(pending.map((p) => [p.name, p.status, p.needs])).toEqual([
-      ['motive-q4.xlsx', 'needs_input', ['format']],
+      ['excel-swift-q4.xlsx', 'needs_input', ['format']],
       ['october.csv', 'needs_input', ['company', 'unit']],
     ]);
 
     // Picking a "coming soon" format fails with the reason; dismiss moves it to failed/.
-    const [motive, october] = pending;
+    const [swift, october] = pending;
     const picked = await request(server())
-      .patch(`/api/v1/inbox/${motive.id}`)
-      .send({ format: 'motive' })
+      .patch(`/api/v1/inbox/${swift.id}`)
+      .send({ format: 'swift' })
       .expect(200);
     expect(picked.body).toMatchObject({ status: 'failed' });
-    expect(picked.body.error).toMatch(/Motive files can't be converted yet/);
+    expect(picked.body.error).toMatch(/Swift ELD files can't be converted yet/);
 
-    await request(server()).post(`/api/v1/inbox/${motive.id}/dismiss`).expect(200);
-    expect(fs.existsSync(path.join(INPUT, 'failed', 'motive-q4.xlsx'))).toBe(true);
+    await request(server()).post(`/api/v1/inbox/${swift.id}/dismiss`).expect(200);
+    expect(fs.existsSync(path.join(INPUT, 'failed', 'excel-swift-q4.xlsx'))).toBe(true);
 
     const done = await request(server())
       .patch(`/api/v1/inbox/${october.id}`)

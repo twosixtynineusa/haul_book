@@ -87,7 +87,9 @@ function PendingRow({
 
   const actionable = entry.status === 'needs_input' || entry.status === 'failed';
   const company = shownValue(draft.company, entry.company);
-  const unit = shownValue(draft.unit, entry.unit);
+  // A file with several trucks: their unit #s come from the file and can't be edited.
+  const manyUnits = entry.units.length > 1;
+  const unit = manyUnits ? entry.units.join(', ') : shownValue(draft.unit, entry.unit);
   const format = draft.format ?? entry.format ?? '';
   const needs = new Set(entry.needs);
   const listId = `inbox-units-${entry.id}`;
@@ -110,7 +112,9 @@ function PendingRow({
     run(() =>
       resolveInbox(
         entry.id,
-        toChoices([{ format: format || undefined, company, unit, confirmSource }])[0],
+        toChoices([
+          { format: format || undefined, company, unit: manyUnits ? '' : unit, confirmSource },
+        ])[0],
       ),
     );
   // Only the source switch is open (format, company and unit are all known): one button.
@@ -172,15 +176,16 @@ function PendingRow({
               />
             </label>
             <label className="block text-xs font-medium text-muted-foreground">
-              Unit #
+              {manyUnits ? `${entry.units.length} trucks (from file)` : 'Unit #'}
               <input
                 type="text"
                 list={listId}
                 value={unit}
+                readOnly={manyUnits}
                 placeholder="e.g. 22"
                 onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
                 aria-invalid={needs.has('unit')}
-                className={cx(fieldClass(needs.has('unit')), 'mt-1')}
+                className={cx(fieldClass(needs.has('unit'), manyUnits), 'mt-1')}
               />
               <datalist id={listId}>
                 {unitsFor(companies, company).map((u) => (
@@ -398,6 +403,7 @@ export function InboxPanel({
                     {STATUS_TEXT[entry.status]}
                     {entry.company && ` · ${entry.company}`}
                     {entry.unit && ` · unit ${entry.unit}`}
+                    {entry.units.length > 1 && ` · units ${entry.units.join(', ')}`}
                     {entry.processedAt && ` · ${formatDateTime(entry.processedAt)}`}
                   </p>
                   {entry.archivedPath && (

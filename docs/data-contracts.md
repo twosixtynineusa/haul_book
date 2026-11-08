@@ -19,19 +19,21 @@
 | 2 | ProMiles FuelTaxOnline TRIPSUMMARY2 import (CSV), one file per company | write out | `conversion/promiles.ts`; named + saved by `conversion.service.ts` |
 | 3 | "IFTA Mileage By State" export (CSV): Bellfam ELD and HOS247 (same layout) | read in | `importers/ifta-mileage-by-state.ts` |
 | 4 | Ezlogz "Mileage Report" export (CSV) | read in | `importers/ezlogz.ts` |
-| 5 | Motive · Swift ELD · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
+| 5 | Motive "IFTA Trip Report" detail export (CSV), one or more trucks | read in | `importers/motive.ts` |
+| 6 | Swift ELD · Vista ELD exports | read in | *placeholders*: `importers/placeholders.ts` (ROADMAP) |
 
 **Format detection:** each uploaded file is offered to every built importer's `detect()` (cheap
 header sniffing on the raw bytes). The first match wins; no match means the portal asks the user
 to pick the format. The **company** and **unit #** come from the file or its name when the format
 carries them (Wialon: unit from the name, no company). Otherwise the user types or picks them from
-the saved list in Postgres.
+the saved list in Postgres. A file may hold several trucks (Motive): each then converts as its own
+truck with the unit # the file gives it.
 
 **Watched input folder:** files dropped in `INPUT_DIR` go through the same detection and readers
 byte for byte. The only addition is where the company comes from: a file in a subfolder
 `INPUT_DIR/<Company name>/` takes the folder name as its company. Otherwise it uses the single
-saved company that has that unit #. The produced ProMiles file (contract 2) is identical to a
-portal conversion.
+saved company that has that unit # (every one of them, for a file with several trucks). The
+produced ProMiles file (contract 2) is identical to a portal conversion.
 
 **Source approval:** a saved company converts automatically only from its approved source
 formats. Its first conversion approves that format. A later file in another format (the owner
@@ -101,7 +103,7 @@ the switch, which approves the new format too. The Companies tab shows and edits
 |---|---|---|
 | A | Unit# | the unit # (from the source file or its name, or entered in the portal) |
 | B / C | Begin / End date | the month row's Time in / Time out (or the `Total` row's), `M/D/YYYY` |
-| D | Begin Odo | for the truck's first trip: the odometer entered in the portal, else the truck's saved end odometer from its last conversion (only when this trip starts after that period ended); then carried forward (+ that trip's miles) to each later month; else **`1`** |
+| D | Begin Odo | the odometer entered in the portal for the truck's first trip, carried forward (+ each trip's miles) to later months; else, for a trip whose source records the odometer (Motive), its own start reading (the next trip carries on from its end reading); else, for the truck's first trip, its saved end odometer from its last conversion (only when this trip starts after that period ended), then carried forward; else **`1`** |
 | E | D or O | `D` (distance mode) |
 | F | M or K | from the mileage suffix (`mi` → `M`, `km` → `K`) |
 | G | State | 2-letter code (US states, DC, Canadian provinces/territories) |
@@ -236,14 +238,64 @@ the switch, which approves the new format too. The Companies tab shows and edits
 
 ---
 
-## 5. Motive · Swift ELD · Vista ELD — not yet specified  *(read in)*
+## 5. Motive "IFTA Trip Report" detail export — v1  *(read in)*
+
+- **Status (2026-11-07):** six real Motive trip reports (October 2026, one holding two trucks)
+  convert. The only warning is a real one: a truck's odometer moving with no state rows for a
+  week. Importing a converted file into FuelTaxOnline is still to be confirmed
+  (MANUAL_TODO §C).
+- **Source:** **Motive** (`motive`).
+- **File:** `<timestamp>-trip_reports_detail_by_vehicle.csv`. Comma-separated, ASCII/UTF-8, LF line
+  endings with a final newline, no BOM (CRLF is accepted). **No company and no period line.**
+- **Layout** (fixture: `apps/api/test/fixtures/1794000000-trip_reports_detail_by_vehicle.csv`, made
+  up): one header row, then one row per state segment, **newest first**, each vehicle's rows in
+  a block of their own.
+
+  ```
+  Date,Vehicle,Jurisdiction,Distance (mi),Odometer Start,Odometer End,Manual Odo Edit,Latitude Start,Longitude Start,Latitude End,Longitude End
+  "Oct 7, 2026",Volvo 7,Texas,312.80,"431,847","432,160",No,33.8732410,-97.1259873,32.7766642,-96.7969879
+  …
+  "Oct 14, 2026",31,Idaho,54.99,"1,206,093","1,206,148",No,43.5872103,-116.5636208,43.6150186,-116.2023137
+  ```
+
+  - Dates are `Mon D, YYYY`, quoted; full state names; miles with 2 decimals; odometers in whole
+    miles with thousands separators, quoted. `Distance (km)` makes it kilometres.
+  - Columns are found by their header names, so a reordered or extra column still reads.
+- **Detection:** the header starts `Date,Vehicle,Jurisdiction,Distance (mi|km),Odometer Start,
+  Odometer End`. Motive's **distance summary** (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`)
+  is detected too, only to refuse it: it has no dates, so it can't become trips, and the message
+  says to export the trip report detail instead.
+- **Company:** never in the file: the user's entry, the input subfolder, or the single saved
+  company that runs **every** unit # in the file. **Unit #:** the `Vehicle` cell as written
+  (`Volvo 7`).
+- **Several trucks per file:** each vehicle converts as its own truck (`SourceFile.units`, and
+  `unit` is null). They share the file's company, so they land in one ProMiles file
+  (`ACME-TRUCKING-LLC_units-Volvo-7-31_2026-10.csv`). A unit # typed for such a file is ignored.
+- **Trips:** each vehicle's rows, in odometer order, make **one trip per month**, from its first to
+  its last day driven (no period line, as with Ezlogz). Within a day the file is newest first,
+  so the odometer, not the file order, sets the route order.
+- **Legs:** one per state per month, ordered by first entry; that month's rows for the state
+  summed, then **rounded to whole miles, half up**. The exact sum is kept as the report's total.
+- **Odometer:** the month's first `Odometer Start` and last `Odometer End` are the trip's own
+  odometer (`fileOdometer`). Begin Odo is the start reading **unless one is typed** for the
+  truck, and the end reading is what's saved for its next conversion (contract 2, column D).
+  - A warning lists every jump of more than 10 mi between consecutive rows (`+507 mi between Oct
+    5, 2026 and Oct 6, 2026 (1,093 → 1,600)`): those miles are in no state, so check the ELD before
+    filing.
+  - A warning names the days with `Manual Odo Edit` = Yes.
+- **Can't convert:** the distance summary, no trip rows, a row with no vehicle, an unknown
+  state, an unreadable date, mileage or odometer.
+- **Output:** contract 2, unchanged
+  (`apps/api/test/fixtures/promiles_expected_motive_2trucks_oct2026.csv`, hand-derived).
+
+---
+
+## 6. Swift ELD · Vista ELD — not yet specified  *(read in)*
 
 - **Status:** placeholders. The portal lists them in the "Source format" picker (marked coming
   soon). They never auto-detect, and choosing one says the importer isn't built yet.
 - **Samples:** real exports for each are kept locally (git-ignored, never committed). Seen so
   far:
-  - **Motive:** CSVs `distance_summary_by_vehicle` (`Vehicle,Jurisdiction,Distance (mi),Fuel (gal)`)
-    and `trip_reports_detail_by_vehicle`;
   - **Swift ELD** and **Vista ELD:** `IFTA_Report*.xls`, legacy Excel (needs an Excel reader).
 - **To specify each:** record the delimiter or sheet, the header, where the state, miles, dates,
   unit # and company name live, the encoding, and how totals and sub-rows are laid out. Then

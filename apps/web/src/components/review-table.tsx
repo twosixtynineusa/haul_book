@@ -87,7 +87,7 @@ export function ReviewTable({
                     <p
                       className={cx('text-xs', mismatch ? 'text-warning' : 'text-muted-foreground')}
                     >
-                      Wialon total {formatDistance(t.reportedTotal, t.distanceUnit)}
+                      Report total {formatDistance(t.reportedTotal, t.distanceUnit)}
                     </p>
                   )}
                 </td>
@@ -101,7 +101,11 @@ export function ReviewTable({
                         onChange={(e) => onOdometerChange(odo[i].key, e.target.value)}
                         readOnly={readOnly}
                         placeholder={
-                          savedReading ? savedReading.reading : `${DEFAULT_BEGIN_ODO} (placeholder)`
+                          t.fileOdometer
+                            ? t.fileOdometer.begin
+                            : savedReading && odo[i].fromSaved
+                              ? savedReading.reading
+                              : `${DEFAULT_BEGIN_ODO} (placeholder)`
                         }
                         aria-label={`Begin odometer for ${t.company} unit ${t.unit}`}
                         aria-invalid={bad}
@@ -118,12 +122,15 @@ export function ReviewTable({
                           Saved: end of {savedReading.asOf}
                         </p>
                       )}
+                      {odo[i].fromFile && (
+                        <p className="mt-1 text-xs text-muted-foreground">From the file</p>
+                      )}
                     </>
                   ) : (
                     <p className="py-1.5 text-sm tabular-nums text-muted-foreground">
                       {odo[i].placeholder
                         ? `${DEFAULT_BEGIN_ODO} (placeholder)`
-                        : `${odo[i].value} (carried forward)`}
+                        : `${odo[i].value} (${odo[i].fromFile ? 'from file' : 'carried forward'})`}
                     </p>
                   )}
                 </td>

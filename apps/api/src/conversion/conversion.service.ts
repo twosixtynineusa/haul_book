@@ -176,7 +176,8 @@ export class ConversionService implements OnModuleInit {
 
   /**
    * Per file: format = the user's pick, else auto-detected; then the importer
-   * reads it; company and unit = the user's entry, else what the file carries.
+   * reads it; company and unit = the user's entry, else what the file carries. A file
+   * holding several trucks (Motive) gives one ready report per truck, unit #s from the file.
    * A saved company's file in a format it hasn't been converted from before waits
    * until the user confirms the switch (`confirmSource`).
    */
@@ -204,6 +205,7 @@ export class ConversionService implements OnModuleInit {
         companyDetected: false,
         unit: choice.unit?.trim() ?? null,
         unitDetected: false,
+        units: [],
         needs: [],
         knownSources: [],
         error: null,
@@ -238,12 +240,17 @@ export class ConversionService implements OnModuleInit {
         source.company = report.detectedCompany;
         source.companyDetected = true;
       }
-      if (!source.unit && report.detectedUnit) {
+      if (report.trucks) {
+        // Several trucks: each unit # comes from the file; one typed for the file can't apply.
+        source.units = report.trucks.map((t) => t.unit);
+        source.unit = null;
+        source.unitDetected = true;
+      } else if (!source.unit && report.detectedUnit) {
         source.unit = report.detectedUnit;
         source.unitDetected = true;
       }
       if (!source.company) source.needs.push('company');
-      if (!source.unit) source.needs.push('unit');
+      if (!source.unit && source.units.length === 0) source.needs.push('unit');
     }
 
     // Detected company names also snap to the saved spelling.
@@ -287,13 +294,21 @@ export class ConversionService implements OnModuleInit {
       const read = reports[i];
       if (!read || s.needs.length > 0) continue;
       warnings.push(...read.warnings);
-      ready.push({
-        company: s.company!,
-        unit: s.unit!,
-        sourceFile: s.name,
-        format: s.format!,
-        report: read.report,
-      });
+      const trucks = read.report.trucks ?? [{ unit: s.unit!, trips: read.report.trips }];
+      for (const truck of trucks) {
+        ready.push({
+          company: s.company!,
+          unit: truck.unit,
+          sourceFile: s.name,
+          format: s.format!,
+          report: {
+            ...read.report,
+            trips: truck.trips,
+            detectedUnit: truck.unit,
+            trucks: undefined,
+          },
+        });
+      }
     }
     return { files: sources, ready, warnings };
   }

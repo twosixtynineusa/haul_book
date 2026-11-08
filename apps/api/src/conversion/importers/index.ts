@@ -2,7 +2,8 @@ import type { SourceFormatId } from '@haulbook/shared';
 import type { UploadedFile } from '../common';
 import { ezlogzImporter } from './ezlogz';
 import { bellamspAnirImporter, hos247Importer } from './ifta-mileage-by-state';
-import { motiveImporter, swiftImporter, vistaEldImporter } from './placeholders';
+import { motiveImporter } from './motive';
+import { swiftImporter, vistaEldImporter } from './placeholders';
 import type { Importer } from './types';
 import { wialonImporter } from './wialon';
 

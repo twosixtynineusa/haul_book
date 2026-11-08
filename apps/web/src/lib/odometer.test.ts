@@ -14,6 +14,7 @@ const trip = (company: string, unit: string, totalDistance: number): TripSummary
   states: ['TX'],
   totalDistance,
   reportedTotal: totalDistance,
+  fileOdometer: null,
 });
 
 describe('tripOdometers', () => {
@@ -45,6 +46,29 @@ describe('tripOdometers', () => {
       value: '7000',
       fromSaved: false,
     });
+  });
+
+  it('starts trips at the file’s own odometer unless a reading is typed (Motive)', () => {
+    const withFile = [
+      { ...trip('ACME', '9', 30), fileOdometer: { begin: '1000', end: '1031' } },
+      { ...trip('ACME', '9', 20), fileOdometer: { begin: '1040', end: '1060' } },
+      trip('ACME', '9', 5),
+    ];
+    const saved = { [truckKey('ACME', '9')]: { reading: '5', asOf: '9/30/2026' } };
+    expect(
+      tripOdometers(withFile, {}, saved).map(({ value, fromFile, fromSaved }) => [
+        value,
+        fromFile,
+        fromSaved,
+      ]),
+    ).toEqual([
+      ['1000', true, false],
+      ['1040', true, false],
+      ['1060', false, false], // carried on from the file's last reading
+    ]);
+    expect(tripOdometers(withFile, { [truckKey('ACME', '9')]: '500' }).map((t) => t.value)).toEqual(
+      ['500', '530', '550'],
+    );
   });
 
   it('ignores a reading that is not a number yet', () => {
