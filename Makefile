@@ -91,7 +91,7 @@ LOCKFILES := packages/shared/package-lock.json apps/api/package-lock.json apps/w
 .PHONY: help setup seed lock output-dir input-dir up down restart rebuild logs logs-api logs-web logs-worker logs-db \
 	migrate migrate-create migrate-deploy generate studio shell-db sql db-backup db-restore \
 	shell-api shell-web test-api test-web test-all ci lint-api lint-web format-api format-web \
-	typecheck build-images up-prod clean ps status
+	typecheck build-images up-prod clean ps status update update-scheduled schedule-setup schedule-remove
 
 .DEFAULT_GOAL := help
 
@@ -131,6 +131,11 @@ help:
 	@echo "  make build-images - Build all images"
 	@echo "  make up-prod      - Run the production images locally (make down first)"
 	@echo "  make clean        - Remove containers + ALL volumes, incl. the database (converted files are untouched)"
+	@echo ""
+	@echo "$(GREEN)Automatic updates$(NC)"
+	@echo "  make update         - git pull + down/rebuild/up, only if the repo has new commits; else just make up"
+	@echo "  make schedule-setup - Run make update daily at $(SCHEDULE_AT), as you (Task Scheduler / cron; no admin)"
+	@echo "  make schedule-remove - Remove that daily job (runs are logged to $(UPDATE_LOG))"
 	@echo ""
 
 # ============================================================================
@@ -365,6 +370,96 @@ up-prod: output-dir input-dir
 
 ps status:
 	$(COMPOSE) --profile full ps
+
+# ============================================================================
+# AUTOMATIC UPDATES (pull + rebuild only when the repository has new commits)
+# ============================================================================
+
+## The daily job's name (Task Scheduler) and time (24 h, local time).
+TASK_NAME := Haul Book update
+SCHEDULE_AT := 03:00
+## Scheduled runs append here (git-ignored *.log), trimmed to the last LOG_LINES lines.
+UPDATE_LOG := update.log
+LOG_LINES := 5000
+## Tags this folder's cron line, so setup replaces it and remove finds it.
+CRON_TAG := haul-book-update:$(CURDIR)
+## WSL (Ubuntu under Windows) schedules through Windows' Task Scheduler: cron there only runs
+## while WSL is open.
+IS_WSL := $(shell grep -qi microsoft /proc/version 2>/dev/null && echo 1)
+
+## Fetch; when the branch's remote has new commits, pull them (fast-forward only), then
+## make down + rebuild + up. With no new commits nothing is pulled or rebuilt: it only
+## makes sure the portal is up. Never pulls over uncommitted changes or local commits.
+## Never prompts (a scheduled run has nobody to answer). DRY_RUN=1 shows what it would do.
+update:
+	@export GIT_TERMINAL_PROMPT=0; \
+	[ -n "$$GIT_SSH_COMMAND" ] || export GIT_SSH_COMMAND="ssh -o BatchMode=yes"; \
+	run() { if [ -n "$(DRY_RUN)" ]; then echo "(dry run) $$*"; else "$$@"; fi; }; \
+	ensure_up() { run $(MAKE) --no-print-directory up; }; \
+	echo "$(BLUE)== Haul Book update - $$(date '+%Y-%m-%d %H:%M:%S') ==$(NC)"; \
+	upstream=$$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || { \
+		echo "$(RED)This branch tracks no remote branch, so there is nothing to pull.$(NC)"; \
+		ensure_up; exit 1; }; \
+	if ! git fetch --quiet; then \
+		echo "$(RED)git fetch failed (offline, or an SSH key that needs a passphrase?). Keeping the current version.$(NC)"; \
+		ensure_up; exit 1; fi; \
+	behind=$$(git rev-list --count 'HEAD..@{u}'); \
+	if [ "$$behind" -eq 0 ]; then \
+		echo "$(GREEN)Up to date with $$upstream - nothing to pull or rebuild.$(NC)"; \
+		ensure_up; exit $$?; fi; \
+	echo "$(YELLOW)$$behind new commit(s) on $$upstream:$(NC)"; \
+	git log --oneline 'HEAD..@{u}'; \
+	if [ -n "$$(git status --porcelain --untracked-files=no)" ]; then \
+		echo "$(RED)This folder has uncommitted changes, so nothing was pulled. Commit or discard them, then run make update.$(NC)"; \
+		ensure_up; exit 1; fi; \
+	if ! git merge-base --is-ancestor HEAD '@{u}'; then \
+		echo "$(RED)This branch has commits that $$upstream doesn't, so it can't just fast-forward. Merge by hand, then run make update.$(NC)"; \
+		ensure_up; exit 1; fi; \
+	run git pull --ff-only --quiet && \
+	run $(MAKE) --no-print-directory down && \
+	run $(MAKE) --no-print-directory rebuild && \
+	run $(MAKE) --no-print-directory up && \
+	{ [ -n "$(DRY_RUN)" ] || echo "$(GREEN)Updated to $$(git log -1 --format='%h %s') and rebuilt.$(NC)"; }
+
+## What the daily job runs: make update, appended to update.log without colours.
+update-scheduled:
+	@{ $(MAKE) --no-print-directory update BLUE= GREEN= YELLOW= RED= NC=; rc=$$?; \
+		echo "== exit $$rc =="; echo ""; } >> "$(UPDATE_LOG)" 2>&1; \
+	tail -n $(LOG_LINES) "$(UPDATE_LOG)" > "$(UPDATE_LOG).tmp" && mv "$(UPDATE_LOG).tmp" "$(UPDATE_LOG)"; \
+	exit $$rc
+
+## Runs make update-scheduled every day at SCHEDULE_AT as you: no admin rights needed.
+## Windows (Git Bash): a Task Scheduler task that runs make.bat while you're logged on.
+## WSL: the same task, running make inside this WSL distro. Linux/macOS: a crontab line.
+## Re-running replaces it. DRY_RUN=1 prints it instead.
+schedule-setup:
+	@run() { if [ -n "$(DRY_RUN)" ]; then echo "(dry run) $$*"; else "$$@"; fi; }; \
+	if [ "$(OS)" = "Windows_NT" ]; then \
+		bat=$$(cygpath -w "$(CURDIR)/make.bat") && \
+		run schtasks /Create /F /SC DAILY /ST $(SCHEDULE_AT) /TN "$(TASK_NAME)" \
+			/TR "\"$$bat\" update-scheduled" || exit 1; \
+		echo "$(GREEN)Task Scheduler: \"$(TASK_NAME)\" runs make update daily at $(SCHEDULE_AT) while you're logged on.$(NC)"; \
+	elif [ -n "$(IS_WSL)" ]; then \
+		[ -n "$$WSL_DISTRO_NAME" ] || { echo "$(RED)WSL_DISTRO_NAME isn't set; run this from a WSL terminal.$(NC)"; exit 1; }; \
+		run schtasks.exe /Create /F /SC DAILY /ST $(SCHEDULE_AT) /TN "$(TASK_NAME)" \
+			/TR "wsl.exe -d $$WSL_DISTRO_NAME --cd \"$(CURDIR)\" make update-scheduled" || exit 1; \
+		echo "$(GREEN)Task Scheduler: \"$(TASK_NAME)\" runs make update in WSL ($$WSL_DISTRO_NAME) daily at $(SCHEDULE_AT) while you're logged on.$(NC)"; \
+	else \
+		command -v crontab >/dev/null || { echo "$(RED)crontab isn't installed, so nothing was scheduled.$(NC)"; exit 1; }; \
+		h=$$(echo "$(SCHEDULE_AT)" | cut -d: -f1); m=$$(echo "$(SCHEDULE_AT)" | cut -d: -f2); \
+		line="$$m $$h * * * cd '$(CURDIR)' && export PATH='$$PATH' && $(MAKE) update-scheduled $(HASH) $(CRON_TAG)"; \
+		if [ -n "$(DRY_RUN)" ]; then echo "(dry run) crontab line: $$line"; \
+		else { crontab -l 2>/dev/null | grep -vF "$(CRON_TAG)"; echo "$$line"; } | crontab - || exit 1; fi; \
+		echo "$(GREEN)cron: make update runs daily at $(SCHEDULE_AT) (crontab -l to see it).$(NC)"; \
+	fi; \
+	echo "Each run is logged to $(CURDIR)/$(UPDATE_LOG). Remove it with: make schedule-remove"
+
+## Removes what schedule-setup created.
+schedule-remove:
+	@if [ "$(OS)" = "Windows_NT" ]; then schtasks /Delete /F /TN "$(TASK_NAME)"; \
+	elif [ -n "$(IS_WSL)" ]; then schtasks.exe /Delete /F /TN "$(TASK_NAME)"; \
+	else { crontab -l 2>/dev/null | grep -vF "$(CRON_TAG)"; } | crontab - && \
+		echo "$(GREEN)Removed the cron line.$(NC)"; fi
 
 clean:
 	@echo "$(YELLOW)WARNING: Removes all containers AND volumes - including the DATABASE (saved companies/units).$(NC)"

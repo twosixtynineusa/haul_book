@@ -45,6 +45,11 @@
   one real sample shows a week of miles in no state.
 - [ ] Export a **quarterly** (multi-month) IFTA report for one truck, convert it, and confirm ProMiles
   imports one trip per month. Then drop two trucks' reports together and confirm both import.
+- [ ] On the PC that runs Haul Book, run **`make schedule-setup`** (README → Automatic updates).
+  - On Windows, check that Task Scheduler shows "Haul Book update" at 3:00.
+  - The next morning, check that `update.log` shows a run ending `== exit 0 ==`.
+  - Unattended runs need Docker Desktop to start at sign-in, and a `git fetch` that doesn't ask
+    for a password (an `https://` clone, or an SSH key without a passphrase).
 - [ ] **Windows:** on a Windows PC, follow README → Setup → Windows. Test both routes, neither of
   which has been tried on Windows yet:
   - **A. Git Bash:** ideally once with Docker Desktop's WSL 2 engine and once with it off (Hyper-V,

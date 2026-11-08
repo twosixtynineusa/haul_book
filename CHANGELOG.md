@@ -2,6 +2,29 @@
 
 Shipped work, newest first.
 
+## 2026-11-07 — Automatic daily updates
+- **`make update`**: `git fetch`; when the branch's remote has new commits, `git pull --ff-only`,
+  then `make down`, `make rebuild` and `make up`. With no new commits nothing is pulled or rebuilt,
+  and it only runs `make up` so the portal is running.
+  - It refuses to pull, and says why, over uncommitted changes, local commits (a diverged
+    branch), or with no upstream branch. In each case the portal keeps running.
+  - It never prompts (`GIT_TERMINAL_PROMPT=0`; SSH in batch mode unless `GIT_SSH_COMMAND` is
+    set), so a scheduled run can't hang.
+  - `DRY_RUN=1` prints what it would do.
+- **`make schedule-setup`** runs `make update-scheduled` (that's `make update`, logged to the
+  git-ignored `update.log`, last 5000 lines kept) daily at 3 am, as the logged-on user, no admin.
+  `make schedule-remove` undoes it.
+  - Windows (Git Bash): a Task Scheduler task, "Haul Book update", running `make.bat`.
+  - WSL: the same Windows task, running make through `wsl.exe` (cron in WSL only runs while WSL is
+    open).
+  - Linux/macOS: a tagged crontab line. Re-running replaces it, and other cron jobs are kept.
+- All the logic is in the Makefile, so there's no separate batch or PowerShell script (CLAUDE.md).
+- Checked here:
+  - every `make update` path in scratch clones: behind and clean (pull + down, rebuild, up), up
+    to date, uncommitted, diverged, no upstream;
+  - the three `schedule-setup` branches, against stand-in `schtasks`/`crontab` commands.
+  - Not yet run on a real Windows Task Scheduler (MANUAL_TODO §C).
+
 ## 2026-11-07 — Motive importer, several trucks per file, odometers from the file
 - **Motive is a built source**: the IFTA trip report detail by vehicle
   (`…trip_reports_detail_by_vehicle.csv`, `importers/motive.ts`, docs/data-contracts.md §5, v1).

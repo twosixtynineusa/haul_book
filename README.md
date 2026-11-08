@@ -317,8 +317,37 @@ You can also approve or remove sources on the Companies tab.
 | `make logs` · `make logs-worker` | Follow the logs (everything · the input-folder worker) |
 | `make db-backup` / `make db-restore` | Save / restore the saved companies, trucks and inbox (`backup-*.sql`) |
 | `make rebuild` | After `git pull`: rebuild images, reinstall dependencies, apply database changes |
+| `make update` | Pull the latest version and rebuild, **only if there is one**; otherwise just make sure the portal is up |
+| `make schedule-setup` / `make schedule-remove` | Run `make update` every day at 3 am / stop doing that |
 | `make clean` | Remove containers **and the database** (asks first; converted files are kept) |
 | `make help` | Every command |
+
+### Automatic updates
+
+`make update` checks GitHub for new commits on your branch (`git fetch`).
+- **New commits:** it runs `git pull`, then `make down`, `make rebuild` and `make up`.
+- **No new commits:** it pulls and rebuilds nothing, and only makes sure the portal is running.
+- **It never overwrites your work.** It pulls nothing when the folder has uncommitted changes or
+  commits of its own; it says so and leaves the portal running. Add `DRY_RUN=1` to see what it
+  would do.
+
+`make schedule-setup` runs it **every day at 3 am** as you, with no administrator rights. Running it
+again replaces the job, and `make schedule-remove` removes it.
+
+| Where you run make | What it creates |
+|---|---|
+| Windows (Git Bash, or `make` from cmd) | A Task Scheduler task, "Haul Book update", that runs `make.bat update-scheduled` while you're logged on. A console window shows briefly at 3 am. |
+| WSL 2 Ubuntu | The same Windows task, running make inside your WSL distro (cron in WSL only runs while WSL is open). |
+| Linux / macOS | A line in your crontab (`crontab -l` shows it). |
+
+Each scheduled run is appended to `update.log` in the project folder (the last 5000 lines are kept).
+For it to work unattended:
+- The computer must be on, and you logged on (Windows), at 3 am; a missed run waits for the next
+  day.
+- **Docker Desktop must be running.** Turn on "Start Docker Desktop when you sign in".
+- `git fetch` mustn't need a password. This repository is public, so an `https://` clone needs
+  none. An SSH clone needs a key without a passphrase, or one loaded in an agent that the job can
+  reach. Otherwise the log says `git fetch failed` and the current version keeps running.
 
 ## Troubleshooting
 
