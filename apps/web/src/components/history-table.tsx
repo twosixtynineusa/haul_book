@@ -39,7 +39,7 @@ export function HistoryTable({
             <th className="w-6 py-2" aria-label="Trips" />
             <th className="py-2 pr-3 font-medium">Converted</th>
             {showTruck && <th className="py-2 pr-3 font-medium">Company</th>}
-            {showTruck && <th className="py-2 pr-3 font-medium">Unit #</th>}
+            {showTruck && <th className="py-2 pr-3 font-medium">Truck #</th>}
             <th className="py-2 pr-3 font-medium">Source</th>
             <th className="py-2 pr-3 font-medium">Dates</th>
             <th className="py-2 pr-3 text-right font-medium">Begin odo</th>

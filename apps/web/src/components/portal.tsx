@@ -199,7 +199,7 @@ export function Portal() {
 
           {files.length > 0 && (
             <Card
-              title="Company & unit"
+              title="Company & truck"
               step={2}
               action={
                 <span className="text-xs text-muted-foreground">
@@ -302,8 +302,8 @@ export function Portal() {
                     </Button>
                     <span className="text-sm text-muted-foreground">
                       {current && !preview.ready
-                        ? 'Finish the company & unit details above first.'
-                        : 'One file per company, named by company and unit #, in '}
+                        ? 'Finish the company & truck details above first.'
+                        : 'One file per company, named by company and truck #, in '}
                       {!(current && !preview.ready) && (
                         <code className="break-all rounded bg-muted px-1 py-0.5 text-xs">
                           {outputs?.outputDir ?? 'the output folder'}
@@ -322,7 +322,7 @@ export function Portal() {
                     <ul className="space-y-1">
                       {result.outputs.map((o) => (
                         <li key={o.name}>
-                          <span className="font-semibold">{o.company}</span> (unit{' '}
+                          <span className="font-semibold">{o.company}</span> (truck{' '}
                           {o.units.join(', ')}):{' '}
                           <code className="break-all">{displayPath(result.outputDir, o.name)}</code>
                         </li>

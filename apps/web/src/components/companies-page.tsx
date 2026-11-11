@@ -83,7 +83,7 @@ export function CompaniesPage() {
         <p className="text-sm text-muted-foreground">
           Companies and trucks are added automatically when a file is converted. Each company
           imports from its one approved source: a file from a different source waits on the
-          Dashboard until you confirm it, which makes that source the approved one. Click a unit #
+          Dashboard until you confirm it, which makes that source the approved one. Click a truck #
           to see the truck and every report converted for it.
         </p>
 
@@ -98,7 +98,7 @@ export function CompaniesPage() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by company, USDOT #, unit #, VIN or plate"
+              placeholder="Search by company, USDOT #, truck #, VIN or plate"
               className={cx(fieldClass(false), 'pl-8')}
             />
           </label>

@@ -167,7 +167,7 @@ function PendingRow({
               />
             </label>
             <label className="block text-xs font-medium text-muted-foreground">
-              {manyUnits ? `${entry.units.length} trucks (from file)` : 'Unit #'}
+              {manyUnits ? `${entry.units.length} trucks (from file)` : 'Truck #'}
               <Combobox
                 className="mt-1"
                 value={unit}
@@ -394,8 +394,8 @@ export function InboxPanel({
                   <p className="truncate text-muted-foreground" title={entry.error ?? undefined}>
                     {STATUS_TEXT[entry.status]}
                     {entry.company && ` · ${entry.company}`}
-                    {entry.unit && ` · unit ${entry.unit}`}
-                    {entry.units.length > 1 && ` · units ${entry.units.join(', ')}`}
+                    {entry.unit && ` · truck ${entry.unit}`}
+                    {entry.units.length > 1 && ` · trucks ${entry.units.join(', ')}`}
                     {entry.processedAt && ` · ${formatDateTime(entry.processedAt)}`}
                   </p>
                   {entry.archivedPath && (

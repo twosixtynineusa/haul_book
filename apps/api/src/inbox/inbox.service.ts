@@ -51,6 +51,14 @@ interface Found {
   folderCompany: string | null;
 }
 
+/** A file converted before whose trucks were deleted since (InboxService.deletedSince). */
+interface Reconvert {
+  /** Only these trucks of a file with several; null = the whole file. */
+  units: string[] | null;
+  /** The company still running the file's other trucks. */
+  company: string | null;
+}
+
 export interface ScanSummary {
   found: number;
   converted: number;
@@ -258,11 +266,12 @@ export class InboxService implements OnModuleInit {
     }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
 
-    const earlier = await this.prisma.inboxFile.findFirst({
+    const earlier = await this.prisma.inboxFile.findMany({
       where: { sha256, status: 'converted', id: { not: record.id } },
       orderBy: { processedAt: 'desc' },
     });
-    if (earlier) {
+    const again = earlier.length > 0 ? await this.deletedSince(earlier) : null;
+    if (earlier.length > 0 && !again) {
       const archivedPath = await this.moveSource(record.path, ARCHIVE_DIR, true);
       return this.prisma.inboxFile.update({
         where: { id: record.id },
@@ -271,7 +280,7 @@ export class InboxService implements OnModuleInit {
           sha256,
           archivedPath,
           needs: [],
-          error: `Same content as ${earlier.name}, already converted to ${earlier.outputs.join(', ')}`,
+          error: `Same content as ${earlier[0].name}, already converted to ${earlier[0].outputs.join(', ')}`,
           processedAt: new Date(),
         },
       });
@@ -288,7 +297,11 @@ export class InboxService implements OnModuleInit {
       ...(record.confirmSource ? { confirmSource: true } : {}),
     };
     // The company sub-folder counts after the file's own company, and before the unit #'s.
-    const options: ConvertOptions = { hints: [{ folderCompany: record.folderCompany }] };
+    // Converting again for some of its trucks: the company running the others stands in.
+    const options: ConvertOptions = {
+      hints: [{ folderCompany: record.folderCompany ?? again?.company }],
+      ...(again?.units ? { onlyUnits: again.units } : {}),
+    };
     const preview = await this.conversion.preview([file], [choice], {}, options);
     const source = preview.files[0];
 
@@ -338,6 +351,35 @@ export class InboxService implements OnModuleInit {
         processedAt: new Date(),
       },
     });
+  }
+
+  /**
+   * Whether a file converted before (same SHA-256) converts again: only once its trucks
+   * were deleted (one by one, or with their company). The history rows those conversions
+   * wrote say so: their truck link goes null on delete and follows merges. Null = still
+   * converted, a duplicate (also when there's no history, i.e. converted before it existed).
+   * `units` null = the whole file again; else just those trucks of a file with several,
+   * with `company` the one running the others. Never the trucks still converted: their
+   * miles would reach ProMiles twice.
+   */
+  private async deletedSince(earlier: InboxFile[]): Promise<Reconvert | null> {
+    const rows = await this.prisma.conversion.findMany({
+      where: {
+        origin: 'inbox',
+        OR: earlier.map((e) => ({ sourceFile: e.name, outputFile: { in: e.outputs } })),
+      },
+      include: { company: true },
+    });
+    const kept = rows.filter((r) => r.unitId);
+    const keptUnits = new Set(kept.map((r) => r.unitNumber));
+    const gone = [
+      ...new Set(rows.filter((r) => !keptUnits.has(r.unitNumber)).map((r) => r.unitNumber)),
+    ];
+    if (gone.length === 0) return null;
+    if (kept.length === 0) return { units: null, company: null };
+    // One truck, converted again since under another unit #.
+    if (earlier[0].units.length === 0) return null;
+    return { units: gone, company: kept[0].company?.name ?? null };
   }
 
   /** Files in INPUT_DIR and one level of company sub-folders (never archive/ or failed/). */

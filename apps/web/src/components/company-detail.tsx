@@ -229,7 +229,7 @@ function TrucksTable({ company, onSaved }: { company: Company; onSaved: (c: Comp
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-muted-foreground">
             <tr className="border-b border-border">
-              <th className="py-2 pr-3 font-medium">Unit #</th>
+              <th className="py-2 pr-3 font-medium">Truck #</th>
               <th className="py-2 pr-3 font-medium">VIN</th>
               <th className="py-2 pr-3 font-medium">Plate</th>
               <th className="py-2 pr-3 font-medium">Odometer</th>
@@ -304,7 +304,7 @@ function TruckRow({
 }) {
   const { busy, error, run } = useAction();
   const remove = async () => {
-    if (!window.confirm(`Delete unit ${truck.unit}? Its saved odometer is deleted too.`)) return;
+    if (!window.confirm(`Delete truck ${truck.unit}? Its saved odometer is deleted too.`)) return;
     const saved = await run(() => deleteTruck(companyId, truck.id));
     if (saved) onSaved(saved);
   };
@@ -357,7 +357,7 @@ function TruckRow({
           variant="ghost"
           className="px-2"
           onClick={onEdit}
-          aria-label={`Edit unit ${truck.unit}`}
+          aria-label={`Edit truck ${truck.unit}`}
         >
           <Pencil className="size-4" />
         </Button>
@@ -366,7 +366,7 @@ function TruckRow({
           className="px-2 hover:text-danger"
           disabled={busy}
           onClick={() => void remove()}
-          aria-label={`Delete unit ${truck.unit}`}
+          aria-label={`Delete truck ${truck.unit}`}
         >
           {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
         </Button>
@@ -413,7 +413,7 @@ function TruckEditor({
 
   return (
     <tr className="border-b border-border bg-muted/40 align-top">
-      <td className="py-2 pr-2">{input('unit', 'Unit #', { autoFocus: !truck })}</td>
+      <td className="py-2 pr-2">{input('unit', 'Truck #', { autoFocus: !truck })}</td>
       <td className="py-2 pr-2">{input('vin', 'VIN', { maxLength: 17 })}</td>
       <td className="py-2 pr-2">{input('plate', 'Plate')}</td>
       <td className="space-y-1 py-2 pr-2">

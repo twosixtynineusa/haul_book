@@ -32,7 +32,7 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 const EDIT_FIELDS: [keyof TruckDraft, string, object?][] = [
-  ['unit', 'Unit #'],
+  ['unit', 'Truck #'],
   ['vin', 'VIN', { maxLength: 17 }],
   ['plate', 'Plate'],
   ['odometer', 'Odometer', { inputMode: 'decimal' }],
@@ -121,7 +121,7 @@ export function TruckPage({ id }: { id: string }) {
       </div>
 
       <Card
-        title={`Unit ${truck.unit}`}
+        title={`Truck ${truck.unit}`}
         action={
           !editing && (
             <Button variant="secondary" onClick={startEdit}>

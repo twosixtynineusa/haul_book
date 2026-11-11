@@ -72,7 +72,7 @@ export function HistoryPage() {
         <p className="text-sm text-muted-foreground">
           Every report written to a ProMiles file is logged here, one row per truck: the dates it
           covers, the odometer at its start and end, and its total miles. Open a row for its trips;
-          click a unit # to see that truck.
+          click a truck # to see that truck.
         </p>
         <label className="relative block">
           <span className="sr-only">Search the history</span>
@@ -84,7 +84,7 @@ export function HistoryPage() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by company, unit #, source, file name or state"
+            placeholder="Search by company, truck #, source, file name or state"
             className={cx(fieldClass(false), 'pl-8')}
           />
         </label>

@@ -2,6 +2,26 @@
 
 Shipped work, newest first.
 
+## 2026-11-11 — Re-drop a file after deleting its truck; "Truck #" in the portal
+- **Fixed: a file dropped again after its company or truck was deleted converts again.** It
+  used to come back as `duplicate` forever, because the check matched any earlier converted
+  file with the same SHA-256. Now an earlier conversion only counts while its trucks exist:
+  the history rows it wrote (`conversions`, matched by source + output file) lose their truck
+  link on a delete and keep it through merges.
+  - A file with several trucks (Motive) where only some were deleted converts again **only for
+    those trucks**, into a new ProMiles file (`ConvertOptions.onlyUnits`); the trucks still
+    converted are never written twice. When nothing else names the company, the one running
+    the file's other trucks is used.
+  - Files converted before the history existed (before 2026-11-07) stay duplicates.
+  - Portal uploads never had a duplicate check, so nothing changed there.
+  - Specs: deleted company, deleted truck (and not after a merge), Motive with one truck deleted.
+- **The portal says "Truck #" instead of "Unit #"** (tables, forms, search boxes, the
+  input-folder card, confirms, "Company & truck", and the "enter the truck #" / "already has
+  truck" messages). The ProMiles CSV, output file names (`_unit-22_`), the API and the docs
+  still say unit.
+- ROADMAP: **move a truck to another company** with its odometer and history, merging into the
+  new company's truck of the same number.
+
 ## 2026-11-07 — Swift ELD and Vista ELD importers (Excel .xls)
 - **Swift ELD and Vista ELD are built sources**: the "IFTA Report" Excel workbook
   (`IFTA_Report*.xls`, `importers/ifta-spreadsheet.ts`, docs/data-contracts.md §6, v1). Labels

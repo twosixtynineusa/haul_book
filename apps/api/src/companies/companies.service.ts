@@ -366,6 +366,6 @@ export class CompaniesService {
 
   private assertUnitFree(company: CompanyWithUnits, unit: string, exceptId?: string): void {
     const other = company.units.find((u) => u.number === unit.trim() && u.id !== exceptId);
-    if (other) throw new ConflictException(`${company.name} already has unit ${other.number}`);
+    if (other) throw new ConflictException(`${company.name} already has truck ${other.number}`);
   }
 }

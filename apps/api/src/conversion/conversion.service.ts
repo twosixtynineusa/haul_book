@@ -101,6 +101,11 @@ export interface ConvertOptions {
   hints?: FileHint[];
   /** Recorded in the conversion history. */
   origin?: HistoryOrigin;
+  /**
+   * A file with several trucks: convert only these unit #s (the input folder converting
+   * a file again for the trucks deleted since; the others are still converted).
+   */
+  onlyUnits?: string[];
 }
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -132,7 +137,7 @@ export class ConversionService implements OnModuleInit {
     odometers: OdometerMap,
     options: ConvertOptions = {},
   ): Promise<ConversionPreview> {
-    const { preview } = await this.plan(files, choices, odometers, options.hints ?? []);
+    const { preview } = await this.plan(files, choices, odometers, options);
     return preview;
   }
 
@@ -142,12 +147,7 @@ export class ConversionService implements OnModuleInit {
     odometers: OdometerMap,
     options: ConvertOptions = {},
   ): Promise<ConversionResult> {
-    const { preview, outputs, ready } = await this.plan(
-      files,
-      choices,
-      odometers,
-      options.hints ?? [],
-    );
+    const { preview, outputs, ready } = await this.plan(files, choices, odometers, options);
     if (!preview.ready) throw new BadRequestException(describeProblems(preview));
 
     const saved: SavedOutput[] = [];
@@ -191,9 +191,9 @@ export class ConversionService implements OnModuleInit {
     files: UploadedFile[],
     choices: SourceChoice[],
     odometers: OdometerMap,
-    hints: FileHint[],
+    options: ConvertOptions,
   ) {
-    const analysis = await this.analyze(files, choices, hints);
+    const analysis = await this.analyze(files, choices, options.hints ?? [], options.onlyUnits);
     const errors: string[] = [];
     let outputs: CompanyOutput[] = [];
     let trips: TripSummary[] = [];
@@ -240,12 +240,13 @@ export class ConversionService implements OnModuleInit {
    *   confirms the switch (`confirmSource`). A company with none yet takes the format of
    *   its first file in the upload.
    * A file holding several trucks (Motive) gives one ready report per truck, unit #s from
-   * the file.
+   * the file (only those in `onlyUnits`, when given).
    */
   private async analyze(
     files: UploadedFile[],
     choices: SourceChoice[],
     hints: FileHint[],
+    onlyUnits?: string[],
   ): Promise<Analysis> {
     const sources: SourceFile[] = [];
     /** Aligned with `sources`: what was read, for the files that could be read. */
@@ -368,7 +369,9 @@ export class ConversionService implements OnModuleInit {
       const read = reads[i];
       if (!read || s.needs.length > 0) continue;
       warnings.push(...read.warnings);
-      const trucks = read.report.trucks ?? [{ unit: s.unit!, trips: read.report.trips }];
+      const trucks = read.report.trucks
+        ? read.report.trucks.filter((t) => !onlyUnits || onlyUnits.includes(t.unit))
+        : [{ unit: s.unit!, trips: read.report.trips }];
       for (const truck of trucks) {
         ready.push({
           company: s.company!,
@@ -509,7 +512,7 @@ export class ConversionService implements OnModuleInit {
 const NEED_TEXT: Record<SourceNeed, string> = {
   format: 'pick its source format',
   company: 'enter the company name',
-  unit: 'enter the unit #',
+  unit: 'enter the truck #',
   period: 'enter the dates it covers',
   source: "confirm converting it from a source other than the company's approved one",
 };

@@ -72,7 +72,7 @@ export function companyOptions(companies: Company[], preferred: string[] = []): 
   const option = (c: Company): PickOption => ({
     value: c.name,
     hint: [
-      first.has(companyKey(c.name)) ? 'has this unit #' : null,
+      first.has(companyKey(c.name)) ? 'has this truck #' : null,
       c.source ? sourceName(c.source) : null,
       `${c.trucks.length} truck${c.trucks.length === 1 ? '' : 's'}`,
     ]
@@ -109,19 +109,19 @@ export function companyOriginLabel(origin: CompanyOrigin | null | undefined): st
     case 'folder':
       return 'from folder';
     case 'unit':
-      return 'by unit #';
+      return 'by truck #';
     default:
       return null;
   }
 }
 
-/** A unit # saved under several companies: "Unit 22 is saved under ACME and XYZ: pick…". */
+/** A unit # saved under several companies: "Truck 22 is saved under ACME and XYZ: pick…". */
 export function companyChoiceText(unit: string, options: string[]): string {
   const names =
     options.length === 2
       ? `${options[0]} and ${options[1]}`
       : options.slice(0, -1).join(', ') + `, and ${options[options.length - 1]}`;
-  return `${unit ? `Unit ${unit} is` : 'These unit #s are'} saved under ${names}: pick which company this file is for.`;
+  return `${unit ? `Truck ${unit} is` : 'These trucks are'} saved under ${names}: pick which company this file is for.`;
 }
 
 /**

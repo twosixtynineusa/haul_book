@@ -364,6 +364,63 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     ]);
   });
 
+  it('converts a re-dropped file again once its company was deleted', async () => {
+    drop(`${COMPANY}/${RAW_NAME}`);
+    await settle();
+    const [saved] = (await companies.list()).companies;
+    await companies.remove(saved.id);
+
+    drop(`${COMPANY}/${RAW_NAME}`);
+    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect(fs.readdirSync(OUTPUT).sort()).toEqual([
+      'ACME-TRUCKING-LLC_unit-22_2026-10.csv',
+      'ACME-TRUCKING-LLC_unit-22_2026-10_2.csv',
+    ]);
+    // Converted once more: a third drop is a duplicate again.
+    drop(`${COMPANY}/${RAW_NAME}`);
+    expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
+  });
+
+  it('converts a re-dropped file again once its truck was deleted, but not after a merge', async () => {
+    drop(`${COMPANY}/${RAW_NAME}`);
+    await settle();
+    // Merged into another spelling: the truck (and its history) live on there.
+    const other = await companies.create({ name: 'ACME TRUCKING' });
+    const [saved] = (await companies.list()).companies.filter((c) => c.name === COMPANY);
+    const merged = await companies.merge(saved.id, other.id);
+    drop(`${COMPANY}/${RAW_NAME}`);
+    expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
+
+    await companies.removeTruck(merged.id, merged.trucks[0].id);
+    drop(`${COMPANY}/${RAW_NAME}`);
+    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect(fs.readdirSync(OUTPUT)).toHaveLength(2);
+  });
+
+  it('converts a Motive file again only for the truck deleted since', async () => {
+    const name = '1794000000-trip_reports_detail_by_vehicle.csv';
+    await companies.record([{ company: COMPANY, units: ['Volvo 7', '31'], source: 'motive' }]);
+    drop(name, fixture(name));
+    await settle();
+    const [saved] = (await companies.list()).companies;
+    await companies.removeTruck(saved.id, saved.trucks.find((t) => t.unit === '31')!.id);
+
+    // Nothing else says whose truck 31 is: the company still running Volvo 7 stands in.
+    drop(name, fixture(name));
+    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect((await inbox.list()).recent[0]).toMatchObject({
+      status: 'converted',
+      company: COMPANY,
+      units: ['Volvo 7', '31'],
+      outputs: ['ACME-TRUCKING-LLC_unit-31_2026-10.csv'],
+    });
+    const logged = await prisma.conversion.findMany();
+    expect(logged.map((r) => r.unitNumber).sort()).toEqual(['31', '31', 'Volvo 7']);
+
+    drop(name, fixture(name));
+    expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
+  });
+
   it('forgets files taken back out, and ignores partial downloads and its own folders', async () => {
     drop(RAW_NAME);
     drop('report.csv.crdownload');

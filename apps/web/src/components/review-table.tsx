@@ -50,7 +50,7 @@ export function ReviewTable({
                 className="border-b border-border align-top last:border-0"
               >
                 <td className="py-3 pr-4">
-                  <p className="font-semibold">Unit {t.unit}</p>
+                  <p className="font-semibold">Truck {t.unit}</p>
                   <p className="max-w-[12rem] truncate text-xs" title={t.company}>
                     {t.company}
                   </p>

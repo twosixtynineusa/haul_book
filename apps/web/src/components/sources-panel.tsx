@@ -211,7 +211,7 @@ export function NeedsText({
         (owners.length > 1
           ? `${companyChoiceText(unit, owners)} `
           : 'Pick or type the company these miles belong to. ')}
-      {needs.has('unit') && 'The unit # isn’t in this file — pick or type it. '}
+      {needs.has('unit') && 'The truck # isn’t in this file — pick or type it. '}
       {needs.has('period') && 'Enter the dates this report covers.'}
     </p>
   );
@@ -350,7 +350,7 @@ export function SourcesPanel({
               </label>
 
               <label className="block text-xs font-medium text-muted-foreground">
-                {manyUnits ? `${source!.units.length} trucks` : 'Unit #'}
+                {manyUnits ? `${source!.units.length} trucks` : 'Truck #'}
                 <Found show={!!source?.unitDetected && (manyUnits || draft.unit === undefined)}>
                   from file
                 </Found>
@@ -361,7 +361,7 @@ export function SourcesPanel({
                   readOnly={readOnly || manyUnits}
                   invalid={needs.has('unit')}
                   title={
-                    manyUnits ? 'Each truck in this file converts with its own unit #' : undefined
+                    manyUnits ? 'Each truck in this file converts with its own truck #' : undefined
                   }
                   placeholder="e.g. 22"
                   onChange={(value) => onChange(key, { unit: value })}

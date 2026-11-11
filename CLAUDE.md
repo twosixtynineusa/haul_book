@@ -45,7 +45,12 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   that unit # (all of them, for a file with several trucks). Several such companies → the file
   `needs: company` with `companyOptions`; never pick one silently. (ConversionService does the
   unit lookup for the portal too; the inbox passes the subfolder as a hint, not as the user's entry.)
-  Same SHA-256 as an already-converted file → `duplicate`, archived, not converted.
+  Same SHA-256 as an already-converted file → `duplicate`, archived, not converted — unless the
+  trucks it was converted for were deleted since (their `conversions` rows lost their truck
+  link; merges keep it): then it converts again, only for the deleted trucks of a file with
+  several (never the ones still converted).
+- **UI wording:** the portal says **truck** / "Truck #" for a saved truck's number. "Unit" stays
+  in the ProMiles CSV, output file names (`_unit-22_`), the API, the database and the docs.
 - Tests (`test/inbox.integration.spec.ts`) call `InboxService.scan()` directly against temp
   folders and override the queue token, so they need Postgres but not Redis.
 

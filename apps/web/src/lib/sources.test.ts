@@ -103,7 +103,7 @@ describe('pick lists', () => {
       { value: 'X Y Z FREIGHT LLC', hint: '1 truck' },
     ]);
     expect(companyOptions(companies, ['x y z freight llc']).map((o) => o.hint)).toEqual([
-      'has this unit # · 1 truck',
+      'has this truck # · 1 truck',
       'Motive · 2 trucks',
     ]);
   });
@@ -117,11 +117,11 @@ describe('pick lists', () => {
   });
 
   it('labels where the company came from, and asks which when a unit # is shared', () => {
-    expect(companyOriginLabel('unit')).toBe('by unit #');
+    expect(companyOriginLabel('unit')).toBe('by truck #');
     expect(companyOriginLabel('file')).toBe('from file');
     expect(companyOriginLabel('user')).toBeNull();
     expect(companyChoiceText('22', ['ACME', 'XYZ'])).toBe(
-      'Unit 22 is saved under ACME and XYZ: pick which company this file is for.',
+      'Truck 22 is saved under ACME and XYZ: pick which company this file is for.',
     );
   });
 });

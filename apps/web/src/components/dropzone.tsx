@@ -60,7 +60,7 @@ export function Dropzone({
       </p>
       <p className="text-xs text-muted-foreground">
         {ACCEPTED_EXTENSIONS.join(' ')} · up to {MAX_UPLOAD_FILES} files · 2 MB each · keep
-        Wialon&apos;s file name (<code className="break-all">22_IFTA_…csv</code>) so the unit # is
+        Wialon&apos;s file name (<code className="break-all">22_IFTA_…csv</code>) so the truck # is
         read from it
       </p>
       <input
