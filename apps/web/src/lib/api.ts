@@ -9,6 +9,7 @@ import {
   ConversionResultSchema,
   OutputListSchema,
   TruckDetailSchema,
+  TruckMovedSchema,
   type Company,
   type CompanyInput,
   type CompanyList,
@@ -17,6 +18,7 @@ import {
   type HistoryQuery,
   type TruckDetail,
   type TruckInput,
+  type TruckMoved,
   type TruckUpdate,
   type InboxEntry,
   type InboxList,
@@ -151,6 +153,13 @@ export const updateTruck = (id: string, truckId: string, input: TruckUpdate) =>
   request<Company>(companyPath(id, 'trucks', truckId), jsonBody('PATCH', input), CompanySchema);
 export const deleteTruck = (id: string, truckId: string) =>
   request<Company>(companyPath(id, 'trucks', truckId), { method: 'DELETE' }, CompanySchema);
+/** Returns both companies as saved now, and the truck's id in the one it joined. */
+export const moveTruck = (id: string, truckId: string, into: string) =>
+  request<TruckMoved>(
+    companyPath(id, 'trucks', truckId, 'move'),
+    jsonBody('POST', { into }),
+    TruckMovedSchema,
+  );
 
 export async function deleteCompany(id: string): Promise<void> {
   const res = await fetch(companyPath(id), { method: 'DELETE' }).catch(() => null);

@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Company as CompanyRow, Unit as UnitRow } from '@prisma/client';
+import type { Company as CompanyRow, Prisma, Unit as UnitRow } from '@prisma/client';
 import {
   SourceFormatIdSchema,
   companyKey,
@@ -11,6 +11,7 @@ import {
   type SourceFormatId,
   type Truck,
   type TruckInputSchema,
+  type TruckMoved,
   type TruckUpdateSchema,
 } from '@haulbook/shared';
 import type { z } from 'zod';
@@ -84,6 +85,31 @@ function toCompany(c: CompanyWithUnits): Company {
     createdAt: c.createdAt.toISOString(),
     lastConvertedAt: lastConvertedAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * Folds truck `from` into `into` (the same truck # at the company it joins): its history
+ * follows, the later odometer and activity win, blank details are filled in, and `from`
+ * is deleted. Company merges and truck moves both use it.
+ */
+async function foldTruck(tx: Prisma.TransactionClient, from: UnitRow, into: UnitRow) {
+  await tx.conversion.updateMany({ where: { unitId: from.id }, data: { unitId: into.id } });
+  await tx.unit.delete({ where: { id: from.id } });
+  await tx.unit.update({
+    where: { id: into.id },
+    data: {
+      vin: into.vin ?? from.vin,
+      plate: into.plate ?? from.plate,
+      notes: into.notes ?? from.notes,
+      ...(isLater(from.odometerAsOf, into.odometerAsOf)
+        ? { odometer: from.odometer, odometerAsOf: from.odometerAsOf }
+        : {}),
+      ...(isLater(from.lastPeriodEnd, into.lastPeriodEnd)
+        ? { lastSource: from.lastSource, lastPeriodEnd: from.lastPeriodEnd }
+        : {}),
+      lastConvertedAt: later(from.lastConvertedAt, into.lastConvertedAt),
+    },
+  });
 }
 
 /** A truck input → Unit data. The schema makes sure odometer + as-of come together. */
@@ -161,27 +187,8 @@ export class CompaniesService {
     await this.prisma.$transaction(async (tx) => {
       for (const u of from.units) {
         const twin = to.units.find((t) => t.number === u.number);
-        if (!twin) {
-          await tx.unit.update({ where: { id: u.id }, data: { companyId: to.id } });
-          continue;
-        }
-        await tx.conversion.updateMany({ where: { unitId: u.id }, data: { unitId: twin.id } });
-        await tx.unit.delete({ where: { id: u.id } });
-        await tx.unit.update({
-          where: { id: twin.id },
-          data: {
-            vin: twin.vin ?? u.vin,
-            plate: twin.plate ?? u.plate,
-            notes: twin.notes ?? u.notes,
-            ...(isLater(u.odometerAsOf, twin.odometerAsOf)
-              ? { odometer: u.odometer, odometerAsOf: u.odometerAsOf }
-              : {}),
-            ...(isLater(u.lastPeriodEnd, twin.lastPeriodEnd)
-              ? { lastSource: u.lastSource, lastPeriodEnd: u.lastPeriodEnd }
-              : {}),
-            lastConvertedAt: later(u.lastConvertedAt, twin.lastConvertedAt),
-          },
-        });
+        if (twin) await foldTruck(tx, u, twin);
+        else await tx.unit.update({ where: { id: u.id }, data: { companyId: to.id } });
       }
       await tx.conversion.updateMany({ where: { companyId: from.id }, data: { companyId: to.id } });
       await tx.company.update({
@@ -225,6 +232,34 @@ export class CompaniesService {
   }
 
   /** The saved spelling of a company that matches `name` case/spacing-insensitively. */
+  /**
+   * Moves a truck to company `into` with everything it owns: its details, saved odometer,
+   * activity and conversion history (the names as written stay). When `into` already has
+   * that truck #, the two become one, as in a company merge. `into` takes the truck's last
+   * source as its approved one when it has none; the company it leaves keeps its own.
+   */
+  async moveTruck(id: string, truckId: string, into: string): Promise<TruckMoved> {
+    if (id === into) throw new ConflictException('Pick a different company to move it to');
+    const [from, to] = [await this.find(id), await this.find(into)];
+    const truck = this.findTruck(from, truckId);
+    const twin = to.units.find((t) => t.number === truck.number);
+    const kept = twin ?? truck;
+    await this.prisma.$transaction(async (tx) => {
+      if (twin) await foldTruck(tx, truck, twin);
+      else await tx.unit.update({ where: { id: truck.id }, data: { companyId: to.id } });
+      await tx.conversion.updateMany({ where: { unitId: kept.id }, data: { companyId: to.id } });
+      if (!to.source && truck.lastSource) {
+        await tx.company.update({ where: { id: to.id }, data: { source: truck.lastSource } });
+      }
+    });
+    return {
+      from: await this.get(from.id),
+      into: await this.get(to.id),
+      truckId: kept.id,
+      merged: !!twin,
+    };
+  }
+
   async canonicalNames(names: string[]): Promise<Map<string, string>> {
     const keys = [...new Set(names.map(companyKey))];
     if (keys.length === 0) return new Map();

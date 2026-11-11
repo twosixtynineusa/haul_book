@@ -2,13 +2,14 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { GitMerge, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, GitMerge, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   SOURCE_FORMATS,
   sourceName,
   type Company,
   type SourceFormatId,
   type Truck,
+  type TruckMoved,
 } from '@haulbook/shared';
 import {
   addTruck,
@@ -29,6 +30,7 @@ import {
   type TruckDraft,
 } from '@/lib/companies';
 import { formatDateTime } from '@/lib/format';
+import { MoveTruck } from './move-truck';
 import { fieldClass } from './sources-panel';
 import { Button, buttonClass, cx } from './ui';
 
@@ -79,19 +81,26 @@ export function CompanyDetail({
   onSaved,
   onDeleted,
   onMerged,
+  onTruckMoved,
 }: {
   company: Company;
-  /** The other companies, to merge this one into. */
+  /** The other companies, to merge this one into or move a truck to. */
   others: Company[];
   onSaved: (company: Company) => void;
   onDeleted: () => void;
   onMerged: (target: Company) => void;
+  onTruckMoved: (moved: TruckMoved) => void;
 }) {
   return (
     <div className="space-y-6 border-t border-border px-4 py-4">
       <DetailsForm company={company} onSaved={onSaved} />
       <SourceEditor company={company} onSaved={onSaved} />
-      <TrucksTable company={company} onSaved={onSaved} />
+      <TrucksTable
+        company={company}
+        others={others}
+        onSaved={onSaved}
+        onTruckMoved={onTruckMoved}
+      />
       <DangerZone company={company} others={others} onDeleted={onDeleted} onMerged={onMerged} />
     </div>
   );
@@ -219,7 +228,17 @@ function SourceEditor({ company, onSaved }: { company: Company; onSaved: (c: Com
   );
 }
 
-function TrucksTable({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
+function TrucksTable({
+  company,
+  others,
+  onSaved,
+  onTruckMoved,
+}: {
+  company: Company;
+  others: Company[];
+  onSaved: (c: Company) => void;
+  onTruckMoved: (moved: TruckMoved) => void;
+}) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -257,8 +276,10 @@ function TrucksTable({ company, onSaved }: { company: Company; onSaved: (c: Comp
                   key={t.id}
                   companyId={company.id}
                   truck={t}
+                  others={others}
                   onEdit={() => setEditing(t.id)}
                   onSaved={onSaved}
+                  onMoved={onTruckMoved}
                 />
               ),
             )}
@@ -294,14 +315,19 @@ function TrucksTable({ company, onSaved }: { company: Company; onSaved: (c: Comp
 function TruckRow({
   companyId,
   truck,
+  others,
   onEdit,
   onSaved,
+  onMoved,
 }: {
   companyId: string;
   truck: Truck;
+  others: Company[];
   onEdit: () => void;
   onSaved: (c: Company) => void;
+  onMoved: (moved: TruckMoved) => void;
 }) {
+  const [moving, setMoving] = useState(false);
   const { busy, error, run } = useAction();
   const remove = async () => {
     if (!window.confirm(`Delete truck ${truck.unit}? Its saved odometer is deleted too.`)) return;
@@ -309,69 +335,93 @@ function TruckRow({
     if (saved) onSaved(saved);
   };
   return (
-    <tr className="border-b border-border align-top last:border-0">
-      <td className="whitespace-nowrap py-2.5 pr-3 font-semibold">
-        <Link
-          href={`/trucks/${truck.id}`}
-          className="text-primary hover:underline"
-          title="See this truck and its converted reports"
-        >
-          {truck.unit}
-        </Link>
-      </td>
-      <td className="py-2.5 pr-3 font-mono text-xs">{truck.vin ?? '—'}</td>
-      <td className="py-2.5 pr-3">{truck.plate ?? '—'}</td>
-      <td className="py-2.5 pr-3 tabular-nums">
-        {truck.odometer ? (
-          <>
-            {Number(truck.odometer).toLocaleString('en-US')}
-            <p className="text-xs text-muted-foreground">
-              end of {formatIsoDate(truck.odometerAsOf)}
-            </p>
-          </>
-        ) : (
-          '—'
-        )}
-      </td>
-      <td className="py-2.5 pr-3 text-xs">
-        {truck.lastConvertedAt ? (
-          <>
-            {formatDateTime(truck.lastConvertedAt)}
-            <p className="text-muted-foreground">
-              {truck.lastSource && sourceName(truck.lastSource)}
-              {truck.lastPeriodEnd && ` · through ${formatIsoDate(truck.lastPeriodEnd)}`}
-            </p>
-          </>
-        ) : (
-          <span className="text-muted-foreground">Never</span>
-        )}
-      </td>
-      <td className="max-w-[14rem] py-2.5 pr-3 text-xs text-muted-foreground">
-        <p className="line-clamp-2" title={truck.notes ?? undefined}>
-          {truck.notes ?? ''}
-        </p>
-        {error && <p className="text-danger">{error}</p>}
-      </td>
-      <td className="whitespace-nowrap py-1.5 text-right">
-        <Button
-          variant="ghost"
-          className="px-2"
-          onClick={onEdit}
-          aria-label={`Edit truck ${truck.unit}`}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          className="px-2 hover:text-danger"
-          disabled={busy}
-          onClick={() => void remove()}
-          aria-label={`Delete truck ${truck.unit}`}
-        >
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-        </Button>
-      </td>
-    </tr>
+    <>
+      <tr className={cx('border-b border-border align-top', !moving && 'last:border-0')}>
+        <td className="whitespace-nowrap py-2.5 pr-3 font-semibold">
+          <Link
+            href={`/trucks/${truck.id}`}
+            className="text-primary hover:underline"
+            title="See this truck and its converted reports"
+          >
+            {truck.unit}
+          </Link>
+        </td>
+        <td className="py-2.5 pr-3 font-mono text-xs">{truck.vin ?? '—'}</td>
+        <td className="py-2.5 pr-3">{truck.plate ?? '—'}</td>
+        <td className="py-2.5 pr-3 tabular-nums">
+          {truck.odometer ? (
+            <>
+              {Number(truck.odometer).toLocaleString('en-US')}
+              <p className="text-xs text-muted-foreground">
+                end of {formatIsoDate(truck.odometerAsOf)}
+              </p>
+            </>
+          ) : (
+            '—'
+          )}
+        </td>
+        <td className="py-2.5 pr-3 text-xs">
+          {truck.lastConvertedAt ? (
+            <>
+              {formatDateTime(truck.lastConvertedAt)}
+              <p className="text-muted-foreground">
+                {truck.lastSource && sourceName(truck.lastSource)}
+                {truck.lastPeriodEnd && ` · through ${formatIsoDate(truck.lastPeriodEnd)}`}
+              </p>
+            </>
+          ) : (
+            <span className="text-muted-foreground">Never</span>
+          )}
+        </td>
+        <td className="max-w-[14rem] py-2.5 pr-3 text-xs text-muted-foreground">
+          <p className="line-clamp-2" title={truck.notes ?? undefined}>
+            {truck.notes ?? ''}
+          </p>
+          {error && <p className="text-danger">{error}</p>}
+        </td>
+        <td className="whitespace-nowrap py-1.5 text-right">
+          <Button
+            variant="ghost"
+            className="px-2"
+            onClick={onEdit}
+            aria-label={`Edit truck ${truck.unit}`}
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            className="px-2"
+            onClick={() => setMoving((m) => !m)}
+            aria-label={`Move truck ${truck.unit} to another company`}
+            title="Move to another company"
+          >
+            <ArrowRightLeft className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            className="px-2 hover:text-danger"
+            disabled={busy}
+            onClick={() => void remove()}
+            aria-label={`Delete truck ${truck.unit}`}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          </Button>
+        </td>
+      </tr>
+      {moving && (
+        <tr className="border-b border-border bg-muted/40 last:border-0">
+          <td colSpan={7} className="px-2 py-2">
+            <MoveTruck
+              companyId={companyId}
+              truck={truck}
+              others={others}
+              onMoved={onMoved}
+              onCancel={() => setMoving(false)}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

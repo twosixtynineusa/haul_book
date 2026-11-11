@@ -4,9 +4,11 @@ import {
   CompanyMergeSchema,
   CompanyUpdateSchema,
   TruckInputSchema,
+  TruckMoveSchema,
   TruckUpdateSchema,
   type Company,
   type CompanyList,
+  type TruckMoved,
 } from '@haulbook/shared';
 import { parseBody } from '../common/parse-body';
 import { CompaniesService } from './companies.service';
@@ -63,5 +65,15 @@ export class CompaniesController {
   @Delete(':id/trucks/:truckId')
   removeTruck(@Param('id') id: string, @Param('truckId') truckId: string): Promise<Company> {
     return this.companies.removeTruck(id, truckId);
+  }
+
+  @Post(':id/trucks/:truckId/move')
+  @HttpCode(200)
+  moveTruck(
+    @Param('id') id: string,
+    @Param('truckId') truckId: string,
+    @Body() body: unknown,
+  ): Promise<TruckMoved> {
+    return this.companies.moveTruck(id, truckId, parseBody(TruckMoveSchema, body).into);
   }
 }

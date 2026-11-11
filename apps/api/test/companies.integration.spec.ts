@@ -1,7 +1,13 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { CompanyListSchema, CompanySchema, truckKey, type CompanyList } from '@haulbook/shared';
+import {
+  CompanyListSchema,
+  CompanySchema,
+  TruckMovedSchema,
+  truckKey,
+  type CompanyList,
+} from '@haulbook/shared';
 import { configureApp } from '../src/app.setup';
 import { CompaniesModule } from '../src/companies/companies.module';
 import { CompaniesService } from '../src/companies/companies.service';
@@ -297,6 +303,127 @@ describeDb('Companies (Postgres integration)', () => {
         { name: 'ACME TRUCKING LLC', units: ['22', '25'] },
       ]);
       await http().post(`/api/v1/companies/${long.id}/merge`).send({ into: long.id }).expect(409);
+    });
+
+    describe('moving a truck to another company', () => {
+      const day = (m: number, d: number) => new Date(Date.UTC(2026, m - 1, d));
+      /** A history row for this truck, as a conversion would write it. */
+      const logged = (companyId: string, unitId: string, unitNumber: string, outputFile: string) =>
+        prisma.conversion.create({
+          data: {
+            companyId,
+            unitId,
+            companyName: 'as written',
+            unitNumber,
+            origin: 'portal',
+            source: 'wialon',
+            sourceFile: 'report.csv',
+            outputFile,
+            beginDate: day(10, 1),
+            endDate: day(10, 31),
+            distance: '100',
+            distanceUnit: 'M',
+            states: ['TX'],
+            trips: [],
+          },
+        });
+      const move = (id: string, truckId: string, into: string) =>
+        http().post(`/api/v1/companies/${id}/trucks/${truckId}/move`).send({ into });
+
+      it('takes its odometer, details, activity and history along', async () => {
+        await companies.record([
+          {
+            company: 'ACME TRUCKING LLC',
+            units: ['22', '25'],
+            source: 'wialon',
+            odometers: [{ unit: '22', reading: 13581, asOf: day(10, 31) }],
+            activity: [{ unit: '22', source: 'wialon', periodEnd: day(10, 31) }],
+          },
+        ]);
+        const xyz = await create({ name: 'X Y Z FREIGHT LLC' });
+        const [acme] = (await companies.list()).companies.filter((c) => c.id !== xyz.id);
+        const truck = acme.trucks.find((t) => t.unit === '22')!;
+        await prisma.unit.update({ where: { id: truck.id }, data: { vin: '1XKAD49X0AJ000001' } });
+        await logged(acme.id, truck.id, '22', 'a.csv');
+
+        const res = await move(acme.id, truck.id, xyz.id).expect(200);
+        const moved = TruckMovedSchema.parse(res.body);
+        expect(moved).toMatchObject({ truckId: truck.id, merged: false });
+        expect(moved.from.trucks.map((t) => t.unit)).toEqual(['25']);
+        expect(moved.from.source).toBe('wialon');
+        // X Y Z had no approved source yet: it takes the truck's.
+        expect(moved.into.source).toBe('wialon');
+        expect(moved.into.trucks).toEqual([
+          expect.objectContaining({
+            id: truck.id,
+            unit: '22',
+            vin: '1XKAD49X0AJ000001',
+            odometer: '13581',
+            odometerAsOf: '2026-10-31',
+            lastSource: 'wialon',
+            lastPeriodEnd: '2026-10-31',
+          }),
+        ]);
+        expect(await prisma.conversion.findMany()).toEqual([
+          expect.objectContaining({
+            companyId: xyz.id,
+            unitId: truck.id,
+            companyName: 'as written',
+          }),
+        ]);
+      });
+
+      it('becomes one truck with the new company’s truck of the same number', async () => {
+        await companies.record([
+          {
+            company: 'ACME TRUCKING LLC',
+            units: ['22'],
+            source: 'wialon',
+            odometers: [{ unit: '22', reading: 2000, asOf: day(10, 31) }],
+          },
+          {
+            company: 'X Y Z FREIGHT LLC',
+            units: ['22'],
+            source: 'ezlogz',
+            odometers: [{ unit: '22', reading: 1000, asOf: day(9, 30) }],
+          },
+        ]);
+        const [acme, xyz] = (await companies.list()).companies;
+        const [mine, theirs] = [acme.trucks[0], xyz.trucks[0]];
+        await prisma.unit.update({ where: { id: mine.id }, data: { plate: 'TX 123' } });
+        await logged(acme.id, mine.id, '22', 'a.csv');
+        await logged(xyz.id, theirs.id, '22', 'x.csv');
+
+        const moved = TruckMovedSchema.parse(
+          (await move(acme.id, mine.id, xyz.id).expect(200)).body,
+        );
+        expect(moved).toMatchObject({ truckId: theirs.id, merged: true });
+        expect(moved.from.trucks).toEqual([]);
+        expect(moved.into.source).toBe('ezlogz'); // its own approved source stays
+        expect(moved.into.trucks).toEqual([
+          expect.objectContaining({ id: theirs.id, odometer: '2000', plate: 'TX 123' }),
+        ]);
+        const history = await prisma.conversion.findMany({ orderBy: { outputFile: 'asc' } });
+        expect(history.map((h) => [h.outputFile, h.companyId, h.unitId])).toEqual([
+          ['a.csv', xyz.id, theirs.id],
+          ['x.csv', xyz.id, theirs.id],
+        ]);
+      });
+
+      it('refuses the same company, an unknown one, or a truck it doesn’t have', async () => {
+        await companies.record([{ company: 'ACME', units: ['22'] }]);
+        const [acme] = (await companies.list()).companies;
+        const truck = acme.trucks[0];
+        await move(acme.id, truck.id, acme.id).expect(409);
+        await move(acme.id, truck.id, 'nope').expect(404);
+        const xyz = await create({ name: 'X Y Z FREIGHT LLC' });
+        await move(acme.id, 'nope', xyz.id).expect(404);
+        await move(xyz.id, truck.id, acme.id).expect(404);
+        await http()
+          .post(`/api/v1/companies/${acme.id}/trucks/${truck.id}/move`)
+          .send({})
+          .expect(400);
+      });
     });
 
     it('deletes a company with its trucks', async () => {

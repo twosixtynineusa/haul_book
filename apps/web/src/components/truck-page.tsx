@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Building2, FileUp, Loader2, Pencil, Truck } from 'lucide-react';
-import { sourceName, type TruckDetail } from '@haulbook/shared';
-import { getTruck, updateTruck } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, ArrowRightLeft, Building2, FileUp, Loader2, Pencil, Truck } from 'lucide-react';
+import { sourceName, type Company, type TruckDetail, type TruckMoved } from '@haulbook/shared';
+import { getTruck, listCompanies, updateTruck } from '@/lib/api';
 import { formatIsoDate, truckChanges, truckDraft, type TruckDraft } from '@/lib/companies';
 import { formatDateTime, formatDistance, plural } from '@/lib/format';
 import { formatOdo, historyTotals, rangeText } from '@/lib/history';
 import { HistoryTable } from './history-table';
+import { MoveTruck } from './move-truck';
 import { fieldClass } from './sources-panel';
 import { Alert, Button, Card, buttonClass, cx } from './ui';
 
@@ -52,6 +54,10 @@ export function TruckPage({ id }: { id: string }) {
   const [draft, setDraft] = useState<TruckDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** The companies it can move to, once "Move" is clicked. */
+  const [moveTargets, setMoveTargets] = useState<Company[] | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     try {
@@ -112,6 +118,22 @@ export function TruckPage({ id }: { id: string }) {
     }
   };
 
+  const startMove = async () => {
+    setMoveError(null);
+    try {
+      const { companies } = await listCompanies();
+      setMoveTargets(companies.filter((c) => c.id !== company.id));
+    } catch (e) {
+      setMoveError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const moved = async ({ truckId }: TruckMoved) => {
+    setMoveTargets(null);
+    // Merged into the other company's truck of the same number: that one's page.
+    if (truckId !== truck.id) router.replace(`/trucks/${truckId}`);
+    else await load();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -124,13 +146,30 @@ export function TruckPage({ id }: { id: string }) {
         title={`Truck ${truck.unit}`}
         action={
           !editing && (
-            <Button variant="secondary" onClick={startEdit}>
-              <Pencil className="size-4" aria-hidden /> Edit truck
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" onClick={() => void startMove()} disabled={!!moveTargets}>
+                <ArrowRightLeft className="size-4" aria-hidden /> Move
+              </Button>
+              <Button variant="secondary" onClick={startEdit}>
+                <Pencil className="size-4" aria-hidden /> Edit truck
+              </Button>
+            </div>
           )
         }
       >
         <div className="space-y-5">
+          {moveError && <Alert tone="danger">{moveError}</Alert>}
+          {moveTargets && (
+            <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <MoveTruck
+                companyId={company.id}
+                truck={truck}
+                others={moveTargets}
+                onMoved={(m) => void moved(m)}
+                onCancel={() => setMoveTargets(null)}
+              />
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
             <span className="flex items-center gap-2">
               <Truck className="size-4 text-muted-foreground" aria-hidden />

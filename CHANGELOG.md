@@ -2,6 +2,25 @@
 
 Shipped work, newest first.
 
+## 2026-11-11 — Move a truck to another company
+- **Move a truck** from the Companies tab (the arrows button on its row) or its page ("Move"):
+  pick another saved company, confirm, and the truck goes there with its saved odometer, VIN,
+  plate, notes, last source / period / converted date, and its conversion history (the rows'
+  company link follows; the names as written stay). `POST
+  /api/v1/companies/:id/trucks/:truckId/move { into }` → `TruckMoved` (both companies, the
+  truck's id where it landed, whether it was merged).
+  - **Into a company that already has that truck #:** the confirm says so, and the two become
+    one truck by the company-merge rules (later odometer and activity win, blank details filled,
+    both histories kept). That fold is now one helper (`foldTruck`) shared by merges and moves.
+    The truck page then opens the kept truck.
+  - The company it joins takes the truck's last source when it has no approved source yet; the
+    one it leaves keeps its own. Moving into the same company (409), an unknown one (404) or
+    without `into` (400) is refused.
+  - A move is not a delete: a file converted for the truck, dropped again, is still a
+    `duplicate`.
+  - Specs: plain move, move onto an existing truck #, refusals, and the inbox duplicate after a
+    move; web: the confirm text.
+
 ## 2026-11-11 — Re-drop a file after deleting its truck; "Truck #" in the portal
 - **Fixed: a file dropped again after its company or truck was deleted converts again.** It
   used to come back as `duplicate` forever, because the check matched any earlier converted

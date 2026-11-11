@@ -15,6 +15,7 @@ import { CompanyNameSchema, SourceFormatIdSchema, UnitNumberSchema } from './sou
  *   POST   /api/v1/companies/:id/trucks    TruckInput          → Company
  *   PATCH  /api/v1/companies/:id/trucks/:truckId  TruckUpdate  → Company
  *   DELETE /api/v1/companies/:id/trucks/:truckId              → Company
+ *   POST   /api/v1/companies/:id/trucks/:truckId/move  TruckMove  → TruckMoved
  *
  * Dates without a time are `YYYY-MM-DD`.
  */
@@ -131,6 +132,23 @@ export const TruckUpdateSchema = z
   .object({ unit: UnitNumberSchema.optional(), ...truckDetails })
   .refine(sameOdometerFields, ODOMETER_PAIR);
 export type TruckUpdate = z.input<typeof TruckUpdateSchema>;
+
+/**
+ * Move a truck to company `into`, with its odometer, details and history. When `into`
+ * already has a truck with that number, the two become one.
+ */
+export const TruckMoveSchema = z.object({ into: z.string().min(1) });
+export type TruckMove = z.infer<typeof TruckMoveSchema>;
+
+export const TruckMovedSchema = z.object({
+  /** The company it left, and the one it joined, as saved now. */
+  from: CompanySchema,
+  into: CompanySchema,
+  /** The truck in `into`: the same id, or the one it was merged into. */
+  truckId: z.string(),
+  merged: z.boolean(),
+});
+export type TruckMoved = z.infer<typeof TruckMovedSchema>;
 
 /** Same company regardless of case/spacing ("acme trucking  llc" = "Acme Trucking LLC"). */
 export function companyKey(name: string): string {

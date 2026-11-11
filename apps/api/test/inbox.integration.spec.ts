@@ -381,7 +381,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
   });
 
-  it('converts a re-dropped file again once its truck was deleted, but not after a merge', async () => {
+  it('converts a re-dropped file again once its truck was deleted, not after a merge or move', async () => {
     drop(`${COMPANY}/${RAW_NAME}`);
     await settle();
     // Merged into another spelling: the truck (and its history) live on there.
@@ -391,7 +391,13 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     drop(`${COMPANY}/${RAW_NAME}`);
     expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
 
-    await companies.removeTruck(merged.id, merged.trucks[0].id);
+    // Moved to another company: still the same truck, still converted.
+    const other2 = await companies.create({ name: 'X Y Z FREIGHT LLC' });
+    const moved = await companies.moveTruck(merged.id, merged.trucks[0].id, other2.id);
+    drop(`${COMPANY}/${RAW_NAME}`);
+    expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
+
+    await companies.removeTruck(other2.id, moved.truckId);
     drop(`${COMPANY}/${RAW_NAME}`);
     expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
     expect(fs.readdirSync(OUTPUT)).toHaveLength(2);

@@ -5,9 +5,20 @@ import {
   detailsDraft,
   filterCompanies,
   formatIsoDate,
+  moveConfirmText,
   truckChanges,
 } from './companies';
 import { company } from './test-helpers';
+
+describe('moving a truck', () => {
+  it('warns when the other company already has that truck #', () => {
+    const xyz = company('X Y Z FREIGHT LLC', ['22']);
+    expect(moveConfirmText('22', xyz)).toMatch(/^X Y Z FREIGHT LLC already has truck 22\. /);
+    expect(moveConfirmText('25', xyz)).toMatch(
+      /^Move truck 25 to X Y Z FREIGHT LLC, with its odometer, details and history\?/,
+    );
+  });
+});
 
 describe('company details', () => {
   const acme = company('ACME TRUCKING LLC', [], { dotNumber: '123456', phone: '555-0100' });

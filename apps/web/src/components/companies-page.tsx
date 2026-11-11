@@ -202,6 +202,10 @@ export function CompaniesPage() {
                       replace(target);
                       setOpenId(target.id);
                     }}
+                    onTruckMoved={(moved) => {
+                      replace(moved.from);
+                      replace(moved.into);
+                    }}
                   />
                 )}
               </li>

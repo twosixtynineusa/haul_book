@@ -66,6 +66,18 @@ export function truckChanges(draft: TruckDraft, base?: Truck): TruckUpdate {
   return out;
 }
 
+/**
+ * The confirm before moving truck `unit` to `target`: says when `target` already has that
+ * truck #, since the two then become one.
+ */
+export function moveConfirmText(unit: string, target: Company): string {
+  const ends = 'ProMiles files already written are not changed.';
+  return target.trucks.some((t) => t.unit === unit)
+    ? `${target.name} already has truck ${unit}. Move it there and make the two one truck? ` +
+        `The later odometer is kept, blank details are filled in, and both histories are kept. ${ends}`
+    : `Move truck ${unit} to ${target.name}, with its odometer, details and history? ${ends}`;
+}
+
 /** Search by company name, USDOT #, or any truck's unit #, VIN or plate. */
 export function filterCompanies(companies: Company[], query: string): Company[] {
   const q = query.trim().toLowerCase();

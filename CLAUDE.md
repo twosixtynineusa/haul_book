@@ -21,14 +21,15 @@ apps/api/          NestJS:
   src/conversion/xls.ts       in-house reader for legacy Excel .xls (OLE2 + BIFF8): cell values only
   src/conversion/promiles.ts  ProMiles writer (pure): trucks → one CSV per company
   src/conversion/conversion.service.ts  detect → read → company/unit → preview / save + name files
-  src/companies/              companies + trucks (Prisma): list, edit, merge, approved source (/api/v1/companies)
+  src/companies/              companies + trucks (Prisma): list, edit, merge, move a truck,
+                              approved source (/api/v1/companies)
   src/history/                conversion history (/api/v1/history) + a truck with its history (/api/v1/trucks/:id)
   src/inbox/                  watched input folder: inbox.service.ts (scan → convert → archive),
                               inbox.processor.ts (BullMQ job scheduler), inbox.controller.ts (/api/v1/inbox)
   src/main.ts · src/worker.ts two processes, one image: HTTP api (app.module) + worker (worker.module)
   prisma/                     schema.prisma + migrations (make migrate NAME=…)
 apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx),
-                   Companies tab (companies-page.tsx, company-detail.tsx), History tab (history-page.tsx)
+                   Companies tab (companies-page.tsx, company-detail.tsx, move-truck.tsx), History tab (history-page.tsx)
                    and truck pages (truck-page.tsx); company/unit pickers are combobox.tsx
 ```
 

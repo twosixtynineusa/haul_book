@@ -4,30 +4,6 @@
 >
 > **Last groomed:** 2026-11-11
 
-## Next — move a truck to another company
-
-- **Move a truck, with its data:** on the Companies tab's truck row and the truck page, a
-  "Move to company…" action (asks first) picks another saved company. The truck moves across
-  with everything it owns: its truck #, saved odometer (`odometer` / `odometerAsOf`), VIN,
-  plate, notes, last source / period / converted date, and its history (`conversions` rows
-  follow it: `unitId` stays, `companyId` becomes the new company; the names as written stay).
-- **Merge when the new company already has that truck #:** the confirm says so, and the two
-  become one truck, by the same rules as the twins in a company merge
-  (`CompaniesService.merge`): the later odometer and activity win, blank details are filled
-  in, both histories land on the kept truck, the moved one is deleted. Pull that twin logic
-  out of `merge` into one helper both use, so the two never drift apart.
-- **What doesn't change:** ProMiles files already written keep the old company's name (they
-  were imported under it), and a move is not a delete: files converted for the truck stay
-  converted, so re-dropping one is still a `duplicate` (its history rows keep their truck
-  link). The old company keeps its approved source; decide before building whether a new
-  company with none takes the truck's last source.
-- **Guard:** never into the same company; the new company must exist (no free-typed
-  name). Once the unit # mapping below exists, the ProMiles unit # guard applies too.
-- API: e.g. `POST /api/v1/companies/:id/trucks/:truckId/move { into }` returning both
-  companies. Spec: move → truck, odometer and history under the new company; move onto an
-  existing truck # → one truck, later odometer kept, both histories; re-drop a converted
-  file → still `duplicate`.
-
 ## Next — portal: recently processed
 
 - **Edit / delete recently processed files:** the input folder's "Recently processed" list
@@ -66,7 +42,8 @@ Usually it's just a number, but not always the source's digits: `Volvo 01` → `
   unit #. Decide before building whether the output file name (`<Company>_unit-<N>_…`) and the
   History tab show the ProMiles unit #, the source one, or both.
 - **Guard:** two trucks of one company may not share a ProMiles unit #. The edit is refused
-  (it would merge two vehicles' miles in ProMiles).
+  (it would merge two vehicles' miles in ProMiles). The same goes for moving a truck to
+  another company (`CompaniesService.moveTruck`): refuse it when its ProMiles unit # is taken there.
 - Needs a schema change (e.g. `Unit.promilesUnit`, null = same as the source), a migration,
   shared contract fields (`Truck`, the file's units in `SourceFile` / `InboxEntry`,
   `SourceChoice`), and a docs/data-contracts.md note on the output's unit # column.

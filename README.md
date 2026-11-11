@@ -310,6 +310,11 @@ company and unit # are added automatically, whether they were read from the file
   - **Delete** removes the company and its trucks. Converted files are never touched.
 - **Trucks:** unit #, VIN, plate and notes, plus the saved odometer, which you can correct. Each
   truck also shows when it was last converted, from which source, and through which date.
+  - **Move** (the arrows button, or "Move" on the truck's page) takes a truck to another saved
+    company with its odometer, details and history. If that company already has the same
+    truck #, the two become one truck (the later odometer is kept). A company with no approved
+    source yet takes the truck's last one. ProMiles files already written aren't changed, and
+    files converted for the truck stay converted.
   **Click a unit #** to open the truck's page: its company and approved source, its details
   (editable), what its reports add up to, and every report converted for it.
 - **Approved source:** the one ELD system a company's files come from. Picking another replaces
