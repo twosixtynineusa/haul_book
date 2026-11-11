@@ -202,6 +202,28 @@ export function resolveInbox(id: string, choice: SourceChoice) {
 export const retryInbox = (id: string) => inboxAction(id, 'retry');
 export const dismissInbox = (id: string) => inboxAction(id, 'dismiss');
 
+/**
+ * Convert a processed file again, with `choice` as corrections (company, truck #, period,
+ * format). What it produced before (ProMiles file, history) is replaced.
+ */
+export const reprocessInbox = (id: string, choice: SourceChoice = {}) =>
+  request<InboxEntry>(
+    `/api/v1/inbox/${encodeURIComponent(id)}/reprocess`,
+    jsonBody('POST', choice),
+    InboxEntrySchema,
+  );
+
+/** Delete a processed row with the ProMiles file(s) and history entries it produced. */
+export async function deleteInbox(id: string): Promise<void> {
+  const res = await fetch(`/api/v1/inbox/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(
+    () => null,
+  );
+  if (!res)
+    throw new ApiRequestError('Could not reach the portal API. Is it running? Try: make up');
+  if (!res.ok)
+    throw new ApiRequestError(errorMessage(await res.json().catch(() => null), res.status));
+}
+
 /** Ask the worker to scan the input folder now. */
 export async function scanInbox(): Promise<void> {
   const res = await fetch('/api/v1/inbox/scan', { method: 'POST' }).catch(() => null);

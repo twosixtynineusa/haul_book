@@ -28,7 +28,8 @@ apps/api/          NestJS:
                               inbox.processor.ts (BullMQ job scheduler), inbox.controller.ts (/api/v1/inbox)
   src/main.ts · src/worker.ts two processes, one image: HTTP api (app.module) + worker (worker.module)
   prisma/                     schema.prisma + migrations (make migrate NAME=…)
-apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx),
+apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx;
+                   input folder cards inbox-panel.tsx + inbox-recent.tsx, output-files.tsx),
                    Companies tab (companies-page.tsx, company-detail.tsx, move-truck.tsx), History tab (history-page.tsx)
                    and truck pages (truck-page.tsx); company/unit pickers are combobox.tsx
 ```
@@ -42,6 +43,16 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   Postgres exactly, and the file would never settle.
 - Never delete a source file: converted → `INPUT_DIR/archive/<YYYY-MM-DD>/<rel path>`, set aside
   → `INPUT_DIR/failed/`, both never overwriting (`_2`). Files needing input stay where they are.
+- **Undoing a processed file** (converted / duplicate / dismissed row; `DELETE /inbox/:id`,
+  `POST /inbox/:id/reprocess`): delete removes the row **and what it produced**: its ProMiles
+  file(s) and `conversions` rows (`ConversionService.forget` → `HistoryService.forget`), by the
+  owner's decision (2026-11-11). Reprocess moves the source back out of `archive/` (or
+  `failed/`) into the input folder, forgets the same way, and converts it again in place (same
+  row), with any `SourceChoice` sent as the user's entry. The row is claimed (`processing`)
+  before the file moves, so a scan never takes it for a new file. Forgetting puts each truck
+  back: its latest activity from what's left of its history, and a saved odometer that
+  conversion wrote back to the reading it began from, so converting again starts at the same
+  Begin Odo. The archived source is still never deleted.
 - Company precedence: user entry → the file → company subfolder → the single saved company with
   that unit # (all of them, for a file with several trucks). Several such companies → the file
   `needs: company` with `companyOptions`; never pick one silently. (ConversionService does the
@@ -52,6 +63,10 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   several (never the ones still converted).
 - **UI wording:** the portal says **truck** / "Truck #" for a saved truck's number. "Unit" stays
   in the ProMiles CSV, output file names (`_unit-22_`), the API, the database and the docs.
+- **Dashboard:** folder paths and `archive/…` paths are not printed on the page (the owner found
+  them confusing, 2026-11-11). Each folder card has a folder button whose tooltip shows the path
+  and whose click copies it. Files waiting for input show in a "Waiting for you" card on top,
+  only while there are any; the Input folder and Output folder cards sit under the upload steps.
 - Tests (`test/inbox.integration.spec.ts`) call `InboxService.scan()` directly against temp
   folders and override the queue token, so they need Postgres but not Redis.
 
@@ -135,7 +150,8 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   (`DEFAULT_BEGIN_ODO = '1'`).
 - A state row's Mileage goes in column H; ProMiles Toll Distance is always `0`.
 - Output is LF-terminated, no BOM, 12 columns, matching ProMiles' example file.
-- Output files are named `<Company>_unit-<N>_<YYYY-MM>.csv` and never overwritten (`_2`, `_3`, …). Downloads only serve names matching
+- Output files are named `<Company>_unit-<N>_<YYYY-MM>.csv` and never overwritten (`_2`, `_3`, …). The only code that
+  deletes one is `ConversionService.forget` (an input-folder row deleted or converted again). Downloads only serve names matching
   `^[A-Za-z0-9][A-Za-z0-9._-]*\.csv$` inside the output folder.
 - A format change means updating docs/data-contracts.md (bump the version) and adding a fixture plus a spec case.
 

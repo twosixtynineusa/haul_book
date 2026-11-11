@@ -4,19 +4,6 @@
 >
 > **Last groomed:** 2026-11-11
 
-## Next — portal: recently processed
-
-- **Edit / delete recently processed files:** the input folder's "Recently processed" list
-  gets per-row actions:
-  - **Delete** a converted / duplicate / dismissed row (asks first) so the same file can be
-    dropped and converted again. Decide whether it also removes the row's history entries and
-    ProMiles output file(s), or only forgets the row; never delete the archived source.
-  - **Reprocess** a row in place: move its archived source back into the input folder (or
-    convert it straight from `archive/…`), so it goes through company / unit / source checks
-    again with the current saved data.
-  - **Update** a row: change its company, unit # or period and reconvert, writing a new
-    ProMiles file (never overwriting the old one).
-
 ## Next — unit # mapping (source unit # → ProMiles unit #)
 
 The source's unit # is kept exactly as the provider exports it (e.g. Motive's `Volvo 01`,

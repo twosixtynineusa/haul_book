@@ -73,6 +73,19 @@ function wanted(name: string): boolean {
   return (ACCEPTED_EXTENSIONS as readonly string[]).includes(ext);
 }
 
+/** What the user entered for a file, over what its row already holds. */
+function entered(record: InboxFile, choice: SourceChoice) {
+  return {
+    format: choice.format ?? record.format,
+    company: choice.company ?? record.company,
+    unit: choice.unit ?? record.unit,
+    ...(choice.period
+      ? { periodBegin: dateOf(choice.period.begin), periodEnd: dateOf(choice.period.end) }
+      : {}),
+    confirmSource: choice.confirmSource ?? record.confirmSource,
+  };
+}
+
 function withSuffix(rel: string, n: number): string {
   if (n === 1) return rel;
   const ext = path.posix.extname(rel);
@@ -198,19 +211,62 @@ export class InboxService implements OnModuleInit {
     if (!CLAIMABLE.includes(record.status)) {
       throw new BadRequestException(`${record.name} is ${record.status.replace('_', ' ')}`);
     }
-    await this.prisma.inboxFile.update({
-      where: { id },
+    await this.prisma.inboxFile.update({ where: { id }, data: entered(record, choice) });
+    return toEntry((await this.process(id)) ?? record);
+  }
+
+  /**
+   * Deletes a processed row and what it produced: its ProMiles file(s) and history entries
+   * (ConversionService.forget). The source it came from stays in archive/ (or failed/), and
+   * the same file can then be dropped and converted again.
+   */
+  async remove(id: string): Promise<void> {
+    const record = this.assertProcessed(await this.find(id));
+    await this.conversion.forget(record.name, record.outputs);
+    await this.prisma.inboxFile.deleteMany({ where: { id } });
+  }
+
+  /**
+   * Converts a processed file again, in place: its source comes back out of archive/ (or
+   * failed/) into the input folder, what the earlier conversion produced is forgotten
+   * (ProMiles file(s), history entries), and it goes through the same checks as a new file,
+   * with `choice` (a corrected company, unit #, period or format) as the user's entry. It
+   * may end up waiting for input like any other file.
+   */
+  async reprocess(id: string, choice: SourceChoice = {}): Promise<InboxEntry> {
+    const record = this.assertProcessed(await this.find(id));
+    const archived = record.archivedPath;
+    if (!archived || !(await this.exists(archived))) {
+      throw new BadRequestException(
+        `${record.name} is no longer in ${archived ?? 'the archive'}, so it can't be converted ` +
+          `again. Drop the file in the input folder instead.`,
+      );
+    }
+    // Claimed before the file moves, so a scan never takes it for a new file.
+    const target = await this.freePath(record.path);
+    const claimed = await this.prisma.inboxFile.updateMany({
+      where: { id, status: record.status },
       data: {
-        format: choice.format ?? record.format,
-        company: choice.company ?? record.company,
-        unit: choice.unit ?? record.unit,
-        ...(choice.period
-          ? { periodBegin: dateOf(choice.period.begin), periodEnd: dateOf(choice.period.end) }
-          : {}),
-        confirmSource: choice.confirmSource ?? record.confirmSource,
+        ...entered(record, choice),
+        status: 'processing',
+        path: target,
+        outputs: [],
+        archivedPath: null,
+        processedAt: null,
+        error: null,
+        needs: [],
       },
     });
-    return toEntry((await this.process(id)) ?? record);
+    if (claimed.count === 0) return toEntry(await this.find(id));
+    try {
+      await this.ensureDir(path.posix.dirname(target));
+      await fsp.rename(this.abs(archived), this.abs(target));
+    } catch (e) {
+      await this.prisma.inboxFile.update({ where: { id }, data: record });
+      throw e;
+    }
+    await this.conversion.forget(record.name, record.outputs);
+    return toEntry((await this.run(id)) ?? record);
   }
 
   async retry(id: string): Promise<InboxEntry> {
@@ -243,6 +299,11 @@ export class InboxService implements OnModuleInit {
       data: { status: 'processing' },
     });
     if (claimed.count === 0) return this.prisma.inboxFile.findUnique({ where: { id } });
+    return this.run(id);
+  }
+
+  /** Converts a claimed (`processing`) file; a failure is kept on its row. */
+  private async run(id: string): Promise<InboxFile | null> {
     const record = (await this.prisma.inboxFile.findUnique({ where: { id } }))!;
     try {
       return await this.convert(record);
@@ -433,17 +494,37 @@ export class InboxService implements OnModuleInit {
       ? path.posix.join(into, new Date().toISOString().slice(0, 10), rel)
       : path.posix.join(into, rel);
     await this.ensureDir(path.posix.dirname(base));
+    const target = await this.freePath(base);
+    await fsp.rename(this.abs(rel), this.abs(target));
+    return target;
+  }
+
+  /** `rel`, or the first of `rel_2`, `rel_3`, … that no file has yet. */
+  private async freePath(rel: string): Promise<string> {
     for (let n = 1; n < 1000; n++) {
-      const target = withSuffix(base, n);
-      try {
-        await fsp.access(this.abs(target));
-        continue; // taken
-      } catch {
-        await fsp.rename(this.abs(rel), this.abs(target));
-        return target;
-      }
+      const target = withSuffix(rel, n);
+      if (!(await this.exists(target))) return target;
     }
-    throw new Error(`Too many files named ${base}`);
+    throw new Error(`Too many files named ${rel}`);
+  }
+
+  private async exists(rel: string): Promise<boolean> {
+    try {
+      await fsp.access(this.abs(rel));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Delete / convert again are for files that left the input folder. */
+  private assertProcessed(record: InboxFile): InboxFile {
+    if (ACTIVE.includes(record.status)) {
+      throw new BadRequestException(
+        `${record.name} is still in the input folder (${record.status.replace('_', ' ')})`,
+      );
+    }
+    return record;
   }
 
   /** mkdir -p inside INPUT_DIR, handing every folder it creates to the host user. */

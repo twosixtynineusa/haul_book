@@ -163,6 +163,26 @@ export class ConversionService implements OnModuleInit {
     return { ...preview, outputs: saved, outputDir: env.outputDirLabel };
   }
 
+  /**
+   * Undoes saved conversions (an input-folder row deleted or converted again): the history
+   * rows these ProMiles files wrote go (HistoryService.forget), then the files themselves.
+   * The only place an output file is ever deleted.
+   */
+  async forget(sourceFile: string, outputs: string[]): Promise<void> {
+    await this.history.forget(sourceFile, outputs);
+    for (const name of outputs) {
+      try {
+        await fsp.unlink(this.resolveOutput(name));
+        this.logger.log(`Deleted ${name} from ${env.outputDirLabel}`);
+      } catch (e) {
+        // Already gone, or not a name this service writes.
+        if (!(e instanceof NotFoundException) && (e as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw e;
+        }
+      }
+    }
+  }
+
   async listOutputs(): Promise<OutputList> {
     let names: string[] = [];
     try {

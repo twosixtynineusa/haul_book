@@ -6,23 +6,21 @@ import {
   Archive,
   CheckCircle2,
   Copy,
-  Download,
-  FolderInput,
   Hourglass,
+  Inbox,
   Loader2,
-  RefreshCw,
   XCircle,
 } from 'lucide-react';
-import { sourceName, type Company, type InboxEntry, type InboxList } from '@haulbook/shared';
 import {
-  dismissInbox,
-  downloadUrl,
-  listInbox,
-  resolveInbox,
-  retryInbox,
-  scanInbox,
-} from '@/lib/api';
-import { formatDateTime, plural } from '@/lib/format';
+  sourceName,
+  type Company,
+  type InboxEntry,
+  type InboxList,
+  type SourceFormatId,
+} from '@haulbook/shared';
+import { dismissInbox, listInbox, resolveInbox, retryInbox, scanInbox } from '@/lib/api';
+import { plural } from '@/lib/format';
+import { STATUS_LABEL } from '@/lib/inbox';
 import {
   companyOptions,
   shownValue,
@@ -33,37 +31,200 @@ import {
 } from '@/lib/sources';
 import { Combobox } from './combobox';
 import { FormatSelect, NeedsText, PeriodFields, SourceSwitch } from './sources-panel';
-import { Alert, Button, Card, cx } from './ui';
+import { Alert, Badge, Button, Card, cx, type Tone } from './ui';
 
 /** How often the portal re-reads the inbox (the worker scans on its own schedule). */
 const REFRESH_MS = 10_000;
 
-const STATUS_TEXT: Record<InboxEntry['status'], string> = {
-  waiting: 'Waiting for the file to finish copying…',
-  processing: 'Converting…',
-  needs_input: 'Needs your input',
-  failed: 'Can’t convert',
-  converted: 'Converted',
-  duplicate: 'Duplicate — already converted',
-  dismissed: 'Set aside in failed/',
+export const STATUS_TONE: Record<InboxEntry['status'], Tone> = {
+  waiting: 'muted',
+  processing: 'muted',
+  needs_input: 'warning',
+  failed: 'danger',
+  converted: 'success',
+  duplicate: 'muted',
+  dismissed: 'muted',
 };
 
-function StatusIcon({ status }: { status: InboxEntry['status'] }) {
+export function StatusIcon({ status }: { status: InboxEntry['status'] }) {
   const cls = 'size-4 shrink-0';
   switch (status) {
     case 'waiting':
-      return <Hourglass className={cx(cls, 'text-muted-foreground')} aria-label="Waiting" />;
+      return <Hourglass className={cls} aria-hidden />;
     case 'processing':
-      return <Loader2 className={cx(cls, 'animate-spin text-muted-foreground')} />;
+      return <Loader2 className={cx(cls, 'animate-spin')} aria-hidden />;
     case 'needs_input':
-      return <AlertTriangle className={cx(cls, 'text-warning')} aria-label="Needs input" />;
+      return <AlertTriangle className={cls} aria-hidden />;
     case 'failed':
-      return <XCircle className={cx(cls, 'text-danger')} aria-label="Failed" />;
+      return <XCircle className={cls} aria-hidden />;
     case 'converted':
-      return <CheckCircle2 className={cx(cls, 'text-success')} aria-label="Converted" />;
+      return <CheckCircle2 className={cls} aria-hidden />;
+    case 'duplicate':
+      return <Copy className={cls} aria-hidden />;
     default:
-      return <Archive className={cx(cls, 'text-muted-foreground')} aria-label="Archived" />;
+      return <Archive className={cls} aria-hidden />;
   }
+}
+
+/** The input folder as the dashboard's cards share it: one poll, one "scan now". */
+export interface InboxState {
+  inbox: InboxList | null;
+  error: string | null;
+  scanning: boolean;
+  /** Re-read the inbox, and tell the page something was converted, changed or deleted. */
+  changed: () => void;
+  scanNow: () => void;
+}
+
+export function useInbox(
+  /** Something was converted, changed or deleted: refresh the outputs and the companies. */
+  onChanged: () => void,
+): InboxState {
+  const [inbox, setInbox] = useState<InboxList | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  /** Newest processed id seen so far (undefined until the first load). */
+  const latest = useRef<string | null | undefined>(undefined);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await listInbox();
+      const newest = next.recent[0]?.id ?? null;
+      // New conversions by the worker → refresh the panels that show them.
+      if (latest.current !== undefined && newest !== latest.current) onChanged();
+      latest.current = newest;
+      setInbox(next);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [onChanged]);
+
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refresh]);
+
+  const changed = useCallback(() => {
+    void refresh();
+    onChanged();
+  }, [refresh, onChanged]);
+
+  const scanNow = useCallback(() => {
+    setScanning(true);
+    scanInbox()
+      .then(() => setTimeout(() => void refresh(), 1500))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setTimeout(() => setScanning(false), 1500));
+  }, [refresh]);
+
+  return { inbox, error, scanning, changed, scanNow };
+}
+
+/** What an input-folder file's form holds: the user's edits over what the row has. */
+export function entryValues(entry: InboxEntry, draft: SourceDraft) {
+  const company = shownValue(draft.company, entry.company);
+  // A file with several trucks: their unit #s come from the file and can't be edited.
+  const manyUnits = entry.units.length > 1;
+  const unit = manyUnits ? entry.units.join(', ') : shownValue(draft.unit, entry.unit);
+  const format: SourceFormatId | '' = draft.format ?? entry.format ?? '';
+  const period = draft.period ?? entry.period ?? { begin: '', end: '' };
+  const needsPeriod = entry.needs.includes('period') || !!entry.period;
+  const complete =
+    !!company.trim() &&
+    !!unit.trim() &&
+    !!format &&
+    (!needsPeriod || (!!period.begin && !!period.end));
+  /** What to send: only what's set, a file's own truck #s left to the file. */
+  const choice = (confirmSource?: boolean) =>
+    toChoices([
+      {
+        format: format || undefined,
+        company,
+        unit: manyUnits ? '' : unit,
+        period: needsPeriod ? period : undefined,
+        confirmSource,
+      },
+    ])[0];
+  return { company, manyUnits, unit, format, period, needsPeriod, complete, choice };
+}
+
+/** Source format, company, truck # (and the period, for a file with no dates) of one file. */
+export function EntryFields({
+  entry,
+  companies,
+  draft,
+  narrow,
+  onChange,
+}: {
+  entry: InboxEntry;
+  companies: Company[];
+  draft: SourceDraft;
+  /** In a half-width card: the format on its own line, company and truck # under it. */
+  narrow?: boolean;
+  onChange: (patch: SourceDraft) => void;
+}) {
+  const { company, manyUnits, unit, format, period, needsPeriod } = entryValues(entry, draft);
+  const needs = new Set(entry.needs);
+  return (
+    <>
+      <div
+        className={cx(
+          'grid gap-3',
+          narrow
+            ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,8rem)]'
+            : 'sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)]',
+        )}
+      >
+        <label
+          className={cx(
+            'block text-xs font-medium text-muted-foreground',
+            narrow && 'sm:col-span-2',
+          )}
+        >
+          Source format
+          <FormatSelect
+            value={format}
+            invalid={needs.has('format')}
+            empty={entry.formatOptions.length ? 'Pick the source…' : 'Not recognised — choose…'}
+            onChange={(f) => onChange({ format: f })}
+          />
+        </label>
+        <label className="block text-xs font-medium text-muted-foreground">
+          Company
+          <Combobox
+            className="mt-1"
+            value={company}
+            options={companyOptions(companies, entry.companyOptions)}
+            invalid={needs.has('company')}
+            placeholder={companies.length ? 'Pick or type a company' : 'Type the company name'}
+            onChange={(value) => onChange({ company: value })}
+          />
+        </label>
+        <label className="block text-xs font-medium text-muted-foreground">
+          {manyUnits ? `${entry.units.length} trucks (from file)` : 'Truck #'}
+          <Combobox
+            className="mt-1"
+            value={unit}
+            options={unitOptions(companies, company)}
+            readOnly={manyUnits}
+            invalid={needs.has('unit')}
+            placeholder="e.g. 22"
+            onChange={(value) => onChange({ unit: value })}
+          />
+        </label>
+      </div>
+      {needsPeriod && (
+        <PeriodFields
+          value={period}
+          suggested={entry.suggestedPeriod}
+          missing={needs.has('period')}
+          onChange={(p) => onChange({ period: p })}
+        />
+      )}
+    </>
+  );
 }
 
 function PendingRow({
@@ -80,19 +241,8 @@ function PendingRow({
   const [error, setError] = useState<string | null>(null);
 
   const actionable = entry.status === 'needs_input' || entry.status === 'failed';
-  const company = shownValue(draft.company, entry.company);
-  // A file with several trucks: their unit #s come from the file and can't be edited.
-  const manyUnits = entry.units.length > 1;
-  const unit = manyUnits ? entry.units.join(', ') : shownValue(draft.unit, entry.unit);
-  const format = draft.format ?? entry.format ?? '';
-  const period = draft.period ?? entry.period ?? { begin: '', end: '' };
+  const { unit, complete, choice } = entryValues(entry, draft);
   const needs = new Set(entry.needs);
-  const needsPeriod = needs.has('period') || !!entry.period;
-  const complete =
-    !!company.trim() &&
-    !!unit.trim() &&
-    !!format &&
-    (!needsPeriod || (!!period.begin && !!period.end));
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -109,20 +259,7 @@ function PendingRow({
   };
 
   const convert = (confirmSource?: boolean) =>
-    run(() =>
-      resolveInbox(
-        entry.id,
-        toChoices([
-          {
-            format: format || undefined,
-            company,
-            unit: manyUnits ? '' : unit,
-            period: needsPeriod ? period : undefined,
-            confirmSource,
-          },
-        ])[0],
-      ),
-    );
+    run(() => resolveInbox(entry.id, choice(confirmSource)));
   // Only the source switch is open (format, company and unit are all known): one button.
   const onlySource = needs.has('source') && needs.size === 1 && !entry.error;
 
@@ -136,58 +273,25 @@ function PendingRow({
       )}
     >
       <div className="flex items-center gap-2">
-        <StatusIcon status={entry.status} />
         <span className="min-w-0 flex-1 truncate text-sm font-medium" title={entry.path}>
-          {entry.path}
+          {entry.name}
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">{STATUS_TEXT[entry.status]}</span>
+        <Badge tone={STATUS_TONE[entry.status]}>
+          <StatusIcon status={entry.status} />
+          {STATUS_LABEL[entry.status]}
+        </Badge>
       </div>
 
       {actionable && (
         <>
-          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)]">
-            <label className="block text-xs font-medium text-muted-foreground">
-              Source format
-              <FormatSelect
-                value={format}
-                invalid={needs.has('format')}
-                empty={entry.formatOptions.length ? 'Pick the source…' : 'Not recognised — choose…'}
-                onChange={(f) => setDraft((d) => ({ ...d, format: f }))}
-              />
-            </label>
-            <label className="block text-xs font-medium text-muted-foreground">
-              Company
-              <Combobox
-                className="mt-1"
-                value={company}
-                options={companyOptions(companies, entry.companyOptions)}
-                invalid={needs.has('company')}
-                placeholder={companies.length ? 'Pick or type a company' : 'Type the company name'}
-                onChange={(value) => setDraft((d) => ({ ...d, company: value }))}
-              />
-            </label>
-            <label className="block text-xs font-medium text-muted-foreground">
-              {manyUnits ? `${entry.units.length} trucks (from file)` : 'Truck #'}
-              <Combobox
-                className="mt-1"
-                value={unit}
-                options={unitOptions(companies, company)}
-                readOnly={manyUnits}
-                invalid={needs.has('unit')}
-                placeholder="e.g. 22"
-                onChange={(value) => setDraft((d) => ({ ...d, unit: value }))}
-              />
-            </label>
-          </div>
-
-          {needsPeriod && (
-            <PeriodFields
-              value={period}
-              suggested={entry.suggestedPeriod}
-              missing={needs.has('period')}
-              onChange={(p) => setDraft((d) => ({ ...d, period: p }))}
+          <div className="mt-3">
+            <EntryFields
+              entry={entry}
+              companies={companies}
+              draft={draft}
+              onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
             />
-          )}
+          </div>
 
           {entry.error && <p className="mt-2 text-xs text-danger">{entry.error}</p>}
           {!entry.error && (
@@ -233,7 +337,7 @@ function PendingRow({
               variant="ghost"
               disabled={busy}
               onClick={() => run(() => dismissInbox(entry.id))}
-              title="Move the file to failed/ and stop showing it here"
+              title="Take the file out of the input folder and stop showing it here"
             >
               Set aside
             </Button>
@@ -245,102 +349,30 @@ function PendingRow({
 }
 
 /**
- * The watched input folder: files the worker couldn't convert on its own wait
- * here for a format / company / unit # / period; recently processed files show where
- * their output and archived source went.
+ * Input-folder files that aren't converted yet: the ones the worker couldn't convert on its
+ * own wait here for a format / company / truck # / period, or for a source switch to be
+ * confirmed. Shown only while there are any.
  */
-export function InboxPanel({
-  companies,
-  onChanged,
-}: {
-  companies: Company[];
-  /** Something was converted — refresh the output list and the saved companies. */
-  onChanged: () => void;
-}) {
-  const [inbox, setInbox] = useState<InboxList | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
-  /** Newest processed id seen so far (undefined until the first load). */
-  const latest = useRef<string | null | undefined>(undefined);
+export function InboxPending({ state, companies }: { state: InboxState; companies: Company[] }) {
+  const pending = state.inbox?.pending ?? [];
+  if (pending.length === 0) return null;
 
-  const refresh = useCallback(async () => {
-    try {
-      const next = await listInbox();
-      const newest = next.recent[0]?.id ?? null;
-      // New conversions by the worker → refresh the panels that show them.
-      if (latest.current !== undefined && newest !== latest.current) onChanged();
-      latest.current = newest;
-      setInbox(next);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [onChanged]);
-
-  useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
-
-  const scanNow = async () => {
-    setScanning(true);
-    try {
-      await scanInbox();
-      setTimeout(() => void refresh(), 1500);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTimeout(() => setScanning(false), 1500);
-    }
-  };
-
-  const attention = inbox?.pending.filter(
-    (p) => p.status === 'needs_input' || p.status === 'failed',
-  );
-  const switches = attention?.filter((p) => p.needs.includes('source')) ?? [];
+  const attention = pending.filter((p) => p.status === 'needs_input' || p.status === 'failed');
+  const switches = attention.filter((p) => p.needs.includes('source'));
 
   return (
     <Card
-      title="Input folder"
+      title={attention.length > 0 ? 'Waiting for you' : 'Coming in'}
+      subtitle={
+        attention.length > 0
+          ? 'From the input folder: fill in what’s missing and they convert.'
+          : 'From the input folder: converting on their own.'
+      }
+      icon={<Inbox className="size-4 text-muted-foreground" aria-hidden />}
       action={
-        <div className="flex items-center gap-2">
-          {!!attention?.length && (
-            <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning">
-              {plural(attention.length, 'file')} need{attention.length === 1 ? 's' : ''} you
-            </span>
-          )}
-          <Button variant="ghost" onClick={scanNow} disabled={scanning} aria-label="Scan now">
-            <RefreshCw className={cx('size-4', scanning && 'animate-spin')} />
-          </Button>
-        </div>
+        attention.length > 0 && <Badge tone="warning">{plural(attention.length, 'file')}</Badge>
       }
     >
-      {inbox && (
-        <div className="mb-4 space-y-1">
-          <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
-            <FolderInput className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <code className="min-w-0 flex-1 truncate text-xs" title={inbox.inputDir}>
-              {inbox.inputDir}
-            </code>
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard?.writeText(inbox.inputDir).catch(() => {})}
-              className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
-              aria-label="Copy folder path"
-            >
-              <Copy className="size-3.5" />
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Drop reports here (or in a sub-folder named after the company). They&apos;re checked
-            every {inbox.scanSeconds}s, converted automatically, and moved to <code>archive/</code>.
-          </p>
-        </div>
-      )}
-
-      {error && <Alert tone="danger">{error}</Alert>}
-
       {switches.length > 0 && (
         <div className="mb-4">
           <Alert tone="warning" title="A company is coming in from a different source">
@@ -358,69 +390,16 @@ export function InboxPanel({
         </div>
       )}
 
-      {inbox && inbox.pending.length > 0 && (
-        <ul className="space-y-3">
-          {inbox.pending.map((entry) => (
-            <PendingRow
-              key={`${entry.id}:${entry.status}`}
-              entry={entry}
-              companies={companies}
-              onDone={() => {
-                void refresh();
-                onChanged();
-              }}
-            />
-          ))}
-        </ul>
-      )}
-
-      {inbox && inbox.pending.length === 0 && (
-        <p className="py-2 text-sm text-muted-foreground">Nothing waiting — the folder is clear.</p>
-      )}
-
-      {inbox && inbox.recent.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Recently processed
-          </p>
-          <ul className="max-h-64 divide-y divide-border overflow-y-auto">
-            {inbox.recent.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-2 py-2 text-xs">
-                <StatusIcon status={entry.status} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium" title={entry.path}>
-                    {entry.path}
-                  </p>
-                  <p className="truncate text-muted-foreground" title={entry.error ?? undefined}>
-                    {STATUS_TEXT[entry.status]}
-                    {entry.company && ` · ${entry.company}`}
-                    {entry.unit && ` · truck ${entry.unit}`}
-                    {entry.units.length > 1 && ` · trucks ${entry.units.join(', ')}`}
-                    {entry.processedAt && ` · ${formatDateTime(entry.processedAt)}`}
-                  </p>
-                  {entry.archivedPath && (
-                    <p className="truncate text-muted-foreground" title={entry.archivedPath}>
-                      Source → <code>{entry.archivedPath}</code>
-                    </p>
-                  )}
-                </div>
-                {entry.outputs.map((name) => (
-                  <a
-                    key={name}
-                    href={downloadUrl(name)}
-                    download={name}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label={`Download ${name}`}
-                    title={name}
-                  >
-                    <Download className="size-4" />
-                  </a>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <ul className="space-y-3">
+        {pending.map((entry) => (
+          <PendingRow
+            key={`${entry.id}:${entry.status}`}
+            entry={entry}
+            companies={companies}
+            onDone={state.changed}
+          />
+        ))}
+      </ul>
     </Card>
   );
 }

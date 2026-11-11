@@ -427,6 +427,137 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
   });
 
+  describe('undoing a processed file', () => {
+    const OUT = 'ACME-TRUCKING-LLC_unit-22_2026-10.csv';
+    const ARCHIVED = `archive/${TODAY}/${COMPANY}/${RAW_NAME}`;
+    const day = (m: number, d: number) => new Date(Date.UTC(2026, m - 1, d));
+    const reprocess = (id: string) => request(server()).post(`/api/v1/inbox/${id}/reprocess`);
+
+    it('deletes a row with its ProMiles file and history, keeping the archived source', async () => {
+      drop(`${COMPANY}/${RAW_NAME}`);
+      await settle();
+      drop(`${COMPANY}/${RAW_NAME}`);
+      await settle();
+      const { recent } = await inbox.list();
+      const converted = recent.find((r) => r.status === 'converted')!;
+      const duplicate = recent.find((r) => r.status === 'duplicate')!;
+
+      // A duplicate produced nothing: only its row goes.
+      await request(server()).delete(`/api/v1/inbox/${duplicate.id}`).expect(204);
+      expect(fs.readdirSync(OUTPUT)).toEqual([OUT]);
+      expect(await prisma.conversion.count()).toBe(1);
+
+      await request(server()).delete(`/api/v1/inbox/${converted.id}`).expect(204);
+      expect(fs.readdirSync(OUTPUT)).toEqual([]);
+      expect(await prisma.conversion.count()).toBe(0);
+      expect((await inbox.list()).recent).toEqual([]);
+      expect(fs.existsSync(path.join(INPUT, ARCHIVED))).toBe(true); // never the source
+      // The truck is back to never converted.
+      const [saved] = (await companies.list()).companies;
+      expect(saved.trucks).toEqual([
+        expect.objectContaining({
+          unit: '22',
+          lastSource: null,
+          lastPeriodEnd: null,
+          lastConvertedAt: null,
+        }),
+      ]);
+
+      // The same file now converts again, under the name that was freed.
+      drop(`${COMPANY}/${RAW_NAME}`);
+      expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+      expect(fs.readdirSync(OUTPUT)).toEqual([OUT]);
+      await request(server()).delete(`/api/v1/inbox/${converted.id}`).expect(404);
+    });
+
+    it('converts a file again in place with a corrected company, replacing what it produced', async () => {
+      drop(`${COMPANY}/${RAW_NAME}`);
+      await settle();
+      const [row] = (await inbox.list()).recent;
+
+      const res = await reprocess(row.id).send({ company: 'X Y Z FREIGHT LLC' }).expect(200);
+      const output = 'X-Y-Z-FREIGHT-LLC_unit-22_2026-10.csv';
+      expect(res.body).toMatchObject({
+        id: row.id,
+        status: 'converted',
+        company: 'X Y Z FREIGHT LLC',
+        unit: '22',
+        outputs: [output],
+        archivedPath: ARCHIVED,
+      });
+      expect(fs.readdirSync(OUTPUT)).toEqual([output]);
+      expect(fs.existsSync(path.join(INPUT, COMPANY, RAW_NAME))).toBe(false);
+      expect(await prisma.conversion.findMany()).toEqual([
+        expect.objectContaining({ companyName: 'X Y Z FREIGHT LLC', outputFile: output }),
+      ]);
+    });
+
+    it('starts a file converted again at the odometer it began from the first time', async () => {
+      await companies.record([
+        {
+          company: COMPANY,
+          units: ['22'],
+          odometers: [{ unit: '22', reading: 5000, asOf: day(9, 30) }],
+        },
+      ]);
+      drop(`${COMPANY}/${RAW_NAME}`);
+      await settle();
+      const [row] = (await inbox.list()).recent;
+
+      const res = await reprocess(row.id).expect(200);
+      expect(res.body).toMatchObject({ status: 'converted', outputs: [OUT] });
+      const csv = fs.readFileSync(path.join(OUTPUT, OUT), 'utf8');
+      expect(csv.split('\n')[2].split(',')[3]).toBe('5000');
+      const saved = await companies.savedOdometers([{ company: COMPANY, unit: '22' }]);
+      expect([...saved.values()]).toEqual([{ reading: 8618, asOf: day(10, 31) }]);
+      expect(await prisma.conversion.count()).toBe(1);
+
+      // Deleted: the truck's odometer is back where the report began.
+      await request(server()).delete(`/api/v1/inbox/${row.id}`).expect(204);
+      const back = await companies.savedOdometers([{ company: COMPANY, unit: '22' }]);
+      expect([...back.values()]).toEqual([{ reading: 5000, asOf: day(9, 30) }]);
+    });
+
+    it('brings a set-aside file back from failed/ to wait for input again', async () => {
+      drop(RAW_NAME);
+      await settle();
+      const [waiting] = (await inbox.list()).pending;
+      await request(server()).post(`/api/v1/inbox/${waiting.id}/dismiss`).expect(200);
+
+      const back = await reprocess(waiting.id).expect(200);
+      expect(back.body).toMatchObject({ status: 'needs_input', needs: ['company'] });
+      expect(fs.existsSync(path.join(INPUT, RAW_NAME))).toBe(true);
+      expect(fs.existsSync(path.join(INPUT, 'failed', RAW_NAME))).toBe(false);
+      // A scan leaves it alone, like any file waiting for the user.
+      expect(await inbox.scan()).toMatchObject({ found: 1, converted: 0, needsInput: 0 });
+    });
+
+    it('refuses a file still in the input folder, or one whose archived source is gone', async () => {
+      drop(RAW_NAME);
+      await settle();
+      const [waiting] = (await inbox.list()).pending;
+      await request(server()).delete(`/api/v1/inbox/${waiting.id}`).expect(400);
+      await reprocess(waiting.id).expect(400);
+      await reprocess('nope').expect(404);
+      await request(server()).delete('/api/v1/inbox/nope').expect(404);
+
+      const done = await request(server())
+        .patch(`/api/v1/inbox/${waiting.id}`)
+        .send({ company: COMPANY })
+        .expect(200);
+      fs.rmSync(path.join(INPUT, done.body.archivedPath));
+      const gone = await reprocess(waiting.id).send({ company: 'X Y Z FREIGHT LLC' }).expect(400);
+      expect(gone.body.message).toMatch(/no longer in archive/);
+      // Still converted, with what it produced.
+      expect((await inbox.list()).recent[0]).toMatchObject({
+        status: 'converted',
+        company: COMPANY,
+        outputs: [OUT],
+      });
+      expect(fs.readdirSync(OUTPUT)).toEqual([OUT]);
+    });
+  });
+
   it('forgets files taken back out, and ignores partial downloads and its own folders', async () => {
     drop(RAW_NAME);
     drop('report.csv.crdownload');

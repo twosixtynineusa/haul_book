@@ -1,5 +1,15 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Module,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { SourceChoiceSchema, type InboxEntry, type InboxList } from '@haulbook/shared';
 import { parseBody } from '../common/parse-body';
@@ -9,7 +19,8 @@ import { InboxService } from './inbox.service';
 
 /**
  * `GET /api/v1/inbox` — files in the watched input folder that need attention,
- * plus the latest ones processed. The other routes act on one waiting file.
+ * plus the latest ones processed. The other routes act on one file: a waiting one
+ * (resolve, retry, dismiss) or a processed one (reprocess, delete).
  */
 @Controller('inbox')
 export class InboxController {
@@ -39,6 +50,20 @@ export class InboxController {
   @HttpCode(200)
   dismiss(@Param('id') id: string): Promise<InboxEntry> {
     return this.inbox.dismiss(id);
+  }
+
+  /** Convert a processed file again, optionally with a corrected company / unit # / period. */
+  @Post(':id/reprocess')
+  @HttpCode(200)
+  reprocess(@Param('id') id: string, @Body() body: unknown): Promise<InboxEntry> {
+    return this.inbox.reprocess(id, parseBody(SourceChoiceSchema, body ?? {}));
+  }
+
+  /** Delete a processed row with the ProMiles file(s) and history entries it produced. */
+  @Delete(':id')
+  @HttpCode(204)
+  remove(@Param('id') id: string): Promise<void> {
+    return this.inbox.remove(id);
   }
 
   /** Ask the worker to scan now instead of waiting for the next tick. */

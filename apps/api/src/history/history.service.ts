@@ -33,6 +33,7 @@ type HistoryQuery = z.output<typeof HistoryQuerySchema>;
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const dateOf = (iso: string) => new Date(`${iso}T00:00:00Z`);
+const DAY_MS = 24 * 60 * 60_000;
 
 function toEntry(row: ConversionRow): HistoryEntry {
   const source = SourceFormatIdSchema.safeParse(row.source);
@@ -102,6 +103,53 @@ export class HistoryService {
           trips: r.trips as unknown as Prisma.InputJsonValue,
         };
       }),
+    });
+  }
+
+  /**
+   * Forgets conversions being undone (an input-folder row deleted or converted again): the
+   * history rows these ProMiles files wrote go, and each truck they were for is put back
+   * where it stood. Its latest activity becomes what's left of its history, and a saved
+   * odometer this conversion wrote goes back to the reading it began from (as of the day
+   * before), so converting the report again starts at the same odometer.
+   */
+  async forget(sourceFile: string, outputFiles: string[]): Promise<void> {
+    if (outputFiles.length === 0) return;
+    await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.conversion.findMany({
+        where: { sourceFile, outputFile: { in: outputFiles } },
+        include: { unit: true },
+      });
+      await tx.conversion.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+      for (const { unit, ...row } of rows) {
+        if (!unit) continue;
+        const left = { where: { unitId: unit.id } };
+        const latest = await tx.conversion.findFirst({ ...left, orderBy: { endDate: 'desc' } });
+        const newest = await tx.conversion.findFirst({ ...left, orderBy: { createdAt: 'desc' } });
+        const shown = unit.lastPeriodEnd?.getTime() === row.endDate.getTime();
+        const wrote =
+          !!row.endOdo &&
+          !!unit.odometer?.equals(row.endOdo) &&
+          unit.odometerAsOf?.getTime() === row.endDate.getTime();
+        await tx.unit.update({
+          where: { id: unit.id },
+          data: {
+            ...(shown
+              ? {
+                  lastSource: latest?.source ?? null,
+                  lastPeriodEnd: latest?.endDate ?? null,
+                  lastConvertedAt: newest?.createdAt ?? null,
+                }
+              : {}),
+            ...(wrote
+              ? {
+                  odometer: row.beginOdo,
+                  odometerAsOf: row.beginOdo ? new Date(row.beginDate.getTime() - DAY_MS) : null,
+                }
+              : {}),
+          },
+        });
+      }
     });
   }
 

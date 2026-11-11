@@ -2,6 +2,39 @@
 
 Shipped work, newest first.
 
+## 2026-11-11 — Undo a processed input-folder file; cleaner Dashboard
+- **Delete, convert again or correct a processed file** from the Dashboard's Input folder card
+  (converted, duplicate or set-aside rows):
+  - **Delete** (`DELETE /api/v1/inbox/:id`) removes the row **with the ProMiles file(s) and
+    history entries it produced** (owner's decision: nothing it wrote is kept). The same file
+    can then be dropped and converted again. A duplicate or set-aside row produced nothing, so
+    only the row goes.
+  - **Convert again** (`POST /api/v1/inbox/:id/reprocess`) moves the source back out of
+    `archive/` (or `failed/`) into the input folder and converts it in place, through the same
+    checks as a new file; it can end up waiting for input. What it produced before is replaced
+    (the freed ProMiles file name is reused, not `_2`).
+  - **Correct** sends a `SourceChoice` with the same call: a changed company, truck #, source
+    format or period is the user's entry for the new conversion.
+  - The archived source is never deleted. A file whose archived source is gone can't be
+    converted again (400, row untouched); a file still in the input folder is refused (400).
+- **Forgetting a conversion puts its trucks back** (`ConversionService.forget` →
+  `HistoryService.forget`): a truck's latest activity becomes what's left of its history
+  ("Never" when nothing is), and a saved odometer that conversion wrote goes back to the
+  reading it began from, as of the day before. So converting a report again starts at the same
+  Begin Odo instead of `1`. This is the only code that deletes an output file.
+- **Dashboard redesign.** The folder paths, the "checked every 30s … moved to archive/" text
+  and the `Source → archive/…` lines are gone from the page.
+  - Files that need input show in a **Waiting for you** card at the top, only while there are
+    any.
+  - The upload steps come first; under them the **Input folder** and **Output folder** cards
+    sit side by side (stacked on a narrow window), each with an icon, a one-line description
+    and status badges. A folder button on each shows the path in its tooltip and copies it.
+  - Input folder rows show the file name, company · truck · time, a status badge and the
+    actions; the correction form opens under the row.
+  - The "Convert & save" step names the saved files instead of printing full paths.
+- Specs: delete (with a duplicate), convert again with a corrected company, the odometer
+  put back, a set-aside file brought back, refusals; web tests for the confirm texts.
+
 ## 2026-11-11 — Move a truck to another company
 - **Move a truck** from the Companies tab (the arrows button on its row) or its page ("Move"):
   pick another saved company, confirm, and the truck goes there with its saved odometer, VIN,

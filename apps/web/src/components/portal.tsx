@@ -17,10 +17,11 @@ import {
   previewConversion,
 } from '@/lib/api';
 import { mergeFiles } from '@/lib/files';
-import { displayPath, plural } from '@/lib/format';
+import { plural } from '@/lib/format';
 import { fileKey, toChoices, type SourceDraft } from '@/lib/sources';
 import { Dropzone } from './dropzone';
-import { InboxPanel } from './inbox-panel';
+import { InboxPending, useInbox } from './inbox-panel';
+import { InboxRecent } from './inbox-recent';
 import { OutputFiles } from './output-files';
 import { ReviewTable } from './review-table';
 import { SourcesPanel } from './sources-panel';
@@ -86,6 +87,7 @@ export function Portal() {
     void refreshOutputs();
     void refreshCompanies();
   }, [refreshOutputs, refreshCompanies]);
+  const inbox = useInbox(refreshAfterInbox);
 
   const choices = useMemo(
     () => toChoices(files.map((f) => drafts[fileKey(f)] ?? {})),
@@ -179,9 +181,9 @@ export function Portal() {
 
   return (
     <>
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="space-y-6">
         <div className="space-y-6">
-          <InboxPanel companies={companies} onChanged={refreshAfterInbox} />
+          <InboxPending state={inbox} companies={companies} />
           <Card title="Add mileage reports" step={1}>
             <Dropzone disabled={done || converting} onAdd={addFiles} />
             {rejected.length > 0 && (
@@ -303,12 +305,7 @@ export function Portal() {
                     <span className="text-sm text-muted-foreground">
                       {current && !preview.ready
                         ? 'Finish the company & truck details above first.'
-                        : 'One file per company, named by company and truck #, in '}
-                      {!(current && !preview.ready) && (
-                        <code className="break-all rounded bg-muted px-1 py-0.5 text-xs">
-                          {outputs?.outputDir ?? 'the output folder'}
-                        </code>
-                      )}
+                        : 'One file per company, named by company and truck #, saved to the output folder.'}
                     </span>
                   </div>
                   {convertError && <Alert tone="danger">{convertError}</Alert>}
@@ -323,8 +320,7 @@ export function Portal() {
                       {result.outputs.map((o) => (
                         <li key={o.name}>
                           <span className="font-semibold">{o.company}</span> (truck{' '}
-                          {o.units.join(', ')}):{' '}
-                          <code className="break-all">{displayPath(result.outputDir, o.name)}</code>
+                          {o.units.join(', ')}): <code className="break-all">{o.name}</code>
                         </li>
                       ))}
                     </ul>
@@ -355,13 +351,16 @@ export function Portal() {
           )}
         </div>
 
-        <OutputFiles
-          outputs={outputs}
-          error={outputsError}
-          loading={outputsLoading}
-          highlight={result?.outputs.map((o) => o.name)}
-          onRefresh={() => void refreshOutputs()}
-        />
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-2">
+          <InboxRecent state={inbox} companies={companies} />
+          <OutputFiles
+            outputs={outputs}
+            error={outputsError}
+            loading={outputsLoading}
+            highlight={result?.outputs.map((o) => o.name)}
+            onRefresh={() => void refreshOutputs()}
+          />
+        </div>
       </div>
     </>
   );

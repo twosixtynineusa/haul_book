@@ -263,15 +263,16 @@ path; your user folder is shared by default.
      the truck's next conversion starts there by itself ("Saved: end of …"). Typing a value
      overrides the saved one. With nothing typed or saved, `1` is written: ProMiles requires a
      value, and `1` imports fine.
-4. **Convert & save.** The file is written to your output folder and listed in the **Output
-   folder** panel with a download link. Each converted report is logged on the **History** tab.
+4. **Convert & save.** The file is written to your output folder and listed on the Dashboard's
+   **Output folder** card with a download link. Each converted report is logged on the **History** tab.
 5. **Import into ProMiles.** In FuelTaxOnline, select that company as the customer, open
    **Import Data**, choose the file and upload it.
 
 Output files are named `<Company>_unit-<N>_<YYYY-MM>.csv`, for example
 `ACME-TRUCKING-LLC_unit-22_2026-10.csv`. Several trucks or months look like
 `…_units-22-25_2026-10_to_2026-12.csv`. Files are never overwritten; a repeat gets `_2`, `_3` and
-so on.
+so on. A ProMiles file is only ever deleted when you delete or convert again the input-folder
+file it came from (see below).
 
 ### Input folder (automatic conversion)
 
@@ -291,11 +292,26 @@ Inbox/
 - Wialon files carry no company name. Drop them in a **subfolder named after the company**, or
   the company is filled in when exactly **one saved company** has that unit #. When several
   do, the file waits and the portal asks which.
-- If something is missing, the file stays put and the portal's **Input folder** card asks for it.
-  Fill it in and click **Convert**.
-- Converted sources move to `archive/<date>/`; nothing is ever deleted. Dropping the same file
-  again archives it as a duplicate instead of converting it twice.
-- A new file can take up to two scan intervals to appear. The ⟳ button on the card scans now.
+- If something is missing, the file stays put and a **Waiting for you** card appears at the top
+  of the Dashboard asking for it. Fill it in and click **Convert**.
+- Converted sources move to `archive/<date>/`; a source report is never deleted. Dropping the
+  same file again archives it as a duplicate instead of converting it twice.
+- A new file can take up to two scan intervals to appear. The ⟳ button on the Dashboard's
+  **Input folder** card checks now; its folder button shows where the folder is and copies the
+  path.
+
+The **Input folder** card lists the latest files that came through, each with its download and
+three ways to undo it:
+
+- **Correct** (pencil): change the company, truck #, source or dates, then **Save & convert
+  again**.
+- **Convert again** (circular arrow): run the file again as it is, for example after fixing the
+  company's approved source or a truck's odometer.
+- **Delete** (bin): remove the row together with the ProMiles file and the history entries it
+  produced. The same file can then be dropped and converted again.
+
+Converting again replaces the ProMiles file and history the file produced before, and starts
+at the same odometer as the first time. In every case the original report stays in `archive/`.
 
 ### Companies tab
 
