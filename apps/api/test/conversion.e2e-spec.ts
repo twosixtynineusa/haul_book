@@ -17,6 +17,7 @@ import type { SavedReading } from '../src/conversion/common';
 import { ConversionModule } from '../src/conversion/conversion.module';
 import { HistoryService, type HistoryRecord } from '../src/history/history.service';
 import { IFTA_REPORT_SAMPLE, iftaReport } from './helpers/ifta-report';
+import { bigRoadReport } from './helpers/big-road-report';
 import { RAW, RAW_NAME, fixture, month, state, wialonReport } from './helpers/wialon-report';
 
 const OUTPUT = process.env.OUTPUT_PATH as string;
@@ -101,6 +102,12 @@ const octoberTrip = (distance: number, states: string) => ({
 
 /** Collects what would be written to the history table. */
 class FakeHistory {
+  async storedOutput() {
+    return null;
+  }
+  async storedOutputs() {
+    return [];
+  }
   records: HistoryRecord[] = [];
   async record(records: HistoryRecord[]) {
     this.records.push(...records);
@@ -387,7 +394,7 @@ describe('Conversions (e2e)', () => {
     const held = await post('/api/v1/conversions/preview', [], file).expect(200);
     expect(held.body.files[0]).toMatchObject({
       format: null,
-      formatOptions: ['bellamsp-anir', 'hos247'],
+      formatOptions: ['bellamsp-anir', 'hos247', 'quick-e-logs'],
       company: 'ACME TRUCKING LLC',
       needs: ['format'],
     });
@@ -418,6 +425,75 @@ describe('Conversions (e2e)', () => {
       formatOptions: [],
       needs: [],
     });
+  });
+
+  it('approves Quick E Logs, remembers the choice, and holds a switch to Forza', async () => {
+    const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
+    const files: [Buffer, string][] = [[fixture(name), name]];
+    const company = 'QUICK TEST LLC';
+    await post('/api/v1/conversions', [{ company, format: 'quick-e-logs' }], files).expect(201);
+    const next = await post('/api/v1/conversions/preview', [{ company }], files).expect(200);
+    expect(next.body.files[0]).toMatchObject({
+      format: 'quick-e-logs',
+      formatOptions: [],
+      needs: [],
+    });
+    const forza: [Buffer, string][] = [[fixture('forza_ifta.csv'), 'random.csv']];
+    const choice = { company, promilesUnits: { '07': '07' } };
+    const held = await post('/api/v1/conversions/preview', [choice], forza).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: 'forza-eld',
+      unit: '07',
+      needs: ['source'],
+      knownSource: 'quick-e-logs',
+    });
+    const res = await post(
+      '/api/v1/conversions',
+      [{ ...choice, confirmSource: true }],
+      forza,
+    ).expect(201);
+    expect(fs.readFileSync(path.join(OUTPUT, res.body.outputs[0].name), 'utf8')).toBe(
+      fixture('promiles_expected_forza_oct2026.csv').toString(),
+    );
+    expect(history.records.at(-1)).toMatchObject({ source: 'forza-eld', unit: '07' });
+  });
+
+  it('holds Big Road for company and period, then saves each truck separately', async () => {
+    const file = bigRoadReport({
+      rows: [
+        ['007', 100, 0, 100],
+        ['008', 0, 200, 200],
+      ],
+    });
+    const files: [Buffer, string][] = [[file.bytes, file.name]];
+    const held = await post('/api/v1/conversions/preview', [], files).expect(200);
+    expect(held.body.files[0]).toMatchObject({
+      format: 'big-road',
+      units: ['007', '008'],
+      needs: expect.arrayContaining(['company', 'period']),
+      suggestedPeriod: null,
+    });
+    const choice = {
+      company: 'BIG ROAD TEST LLC',
+      period: { begin: '2026-10-01', end: '2026-10-31' },
+      promilesUnits: { '007': '107', '008': '108' },
+      unit: 'ignored',
+    };
+    const res = await post('/api/v1/conversions', [choice], files).expect(201);
+    const result = ConversionResultSchema.parse(res.body);
+    expect(result.files[0]).toMatchObject({
+      period: choice.period,
+      needs: [],
+      units: ['007', '008'],
+    });
+    expect(history.records.slice(-2).map((r) => [r.unit, r.source, r.trips])).toEqual([
+      ['007', 'big-road', [octoberTrip(100, 'OR')]],
+      ['008', 'big-road', [octoberTrip(200, 'WA')]],
+    ]);
+    expect(result.outputs[0].units).toEqual(['007', '008']);
+    const csv = fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8');
+    expect(csv).toContain('\n107,10/1/2026,10/31/2026,1,D,M,OR,100,');
+    expect(csv).toContain('\n108,10/1/2026,10/31/2026,1,D,M,WA,200,');
   });
 
   it('converts a Motive file holding two trucks, each with its own unit # and odometer', async () => {

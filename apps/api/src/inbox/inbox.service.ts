@@ -8,7 +8,7 @@ import {
   NotFoundException,
   type OnModuleInit,
 } from '@nestjs/common';
-import type { InboxFile, InboxStatus } from '@prisma/client';
+import type { InboxFile, InboxStatus, Prisma } from '@prisma/client';
 import {
   ACCEPTED_EXTENSIONS,
   SourceFormatIdSchema,
@@ -195,16 +195,40 @@ export class InboxService implements OnModuleInit {
     return summary;
   }
 
-  async list(): Promise<InboxList> {
+  async list(companyId?: string, truckId?: string): Promise<InboxList> {
+    let scope: Prisma.InboxFileWhereInput = {};
+    if (companyId || truckId) {
+      const truck = truckId
+        ? await this.prisma.unit.findUnique({ where: { id: truckId }, include: { company: true } })
+        : null;
+      const company =
+        truck?.company ??
+        (companyId ? await this.prisma.company.findUnique({ where: { id: companyId } }) : null);
+      if (!company || (truckId && !truck) || (companyId && company.id !== companyId))
+        throw new NotFoundException('No such company or truck');
+      const history = await this.prisma.conversion.findMany({
+        where: { companyId: company.id, ...(truck ? { unitId: truck.id } : {}) },
+        select: { outputFile: true },
+      });
+      scope = {
+        OR: [
+          { outputs: { hasSome: history.map((h) => h.outputFile) } },
+          {
+            company: { equals: company.name, mode: 'insensitive' },
+            ...(truck ? { OR: [{ unit: truck.number }, { units: { has: truck.number } }] } : {}),
+          },
+        ],
+      };
+    }
     const [pending, recent] = await Promise.all([
       this.prisma.inboxFile.findMany({
-        where: { status: { in: ACTIVE } },
+        where: { AND: [scope, { status: { in: ACTIVE } }] },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.inboxFile.findMany({
-        where: { status: { notIn: ACTIVE } },
+        where: { AND: [scope, { status: { notIn: ACTIVE } }] },
         orderBy: { updatedAt: 'desc' },
-        take: RECENT_LIMIT,
+        ...(companyId || truckId ? {} : { take: RECENT_LIMIT }),
       }),
     ]);
     return {
@@ -226,14 +250,17 @@ export class InboxService implements OnModuleInit {
   }
 
   /**
-   * Deletes a processed row and what it produced: its ProMiles file(s) and history entries
-   * (ConversionService.forget). The source it came from stays in archive/ (or failed/), and
-   * the same file can then be dropped and converted again.
+   * Deletes a processed row and everything it left behind: its ProMiles file(s) and history
+   * entries (ConversionService.forget) and its source in archive/ (or failed/), by the owner's
+   * decision (2026-11-11). The same report can then be dropped and converted again.
    */
   async remove(id: string): Promise<void> {
     const record = this.assertProcessed(await this.find(id));
     await this.conversion.forget(record.name, record.outputs);
-    await this.prisma.inboxFile.deleteMany({ where: { id } });
+    const deleted = await this.prisma.inboxFile.deleteMany({
+      where: { id, status: record.status },
+    });
+    if (deleted.count > 0 && record.archivedPath) await this.deleteSource(record.archivedPath);
   }
 
   /**
@@ -516,6 +543,23 @@ export class InboxService implements OnModuleInit {
     const target = await this.freePath(base);
     await fsp.rename(this.abs(rel), this.abs(target));
     return target;
+  }
+
+  /**
+   * Deletes a processed source (only ever one under archive/ or failed/), then any folders
+   * it leaves empty there (`archive/<date>/<company>/`), never archive/ or failed/ itself.
+   */
+  private async deleteSource(rel: string): Promise<void> {
+    const [root] = rel.split('/');
+    if (root !== ARCHIVE_DIR && root !== FAILED_DIR) return;
+    await fsp.rm(this.abs(rel), { force: true });
+    for (let dir = path.posix.dirname(rel); dir.includes('/'); dir = path.posix.dirname(dir)) {
+      try {
+        await fsp.rmdir(this.abs(dir));
+      } catch {
+        return; // not empty (or gone): leave it and everything above it
+      }
+    }
   }
 
   /** `rel`, or the first of `rel_2`, `rel_3`, … that no file has yet. */

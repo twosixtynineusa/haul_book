@@ -6,6 +6,7 @@ import {
   Header,
   HttpCode,
   Param,
+  Query,
   Post,
   Res,
   StreamableFile,
@@ -14,12 +15,14 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { parseBody } from '../common/parse-body';
 import {
   ACCEPTED_EXTENSIONS,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
   OdometerMapSchema,
   SourceChoicesSchema,
+  HistoryQuerySchema,
   type ConversionPreview,
   type ConversionResult,
   type OdometerMap,
@@ -129,8 +132,9 @@ export class OutputsController {
   constructor(private readonly conversions: ConversionService) {}
 
   @Get()
-  list(): Promise<OutputList> {
-    return this.conversions.listOutputs();
+  list(@Query() query: unknown): Promise<OutputList> {
+    const parsed = parseBody(HistoryQuerySchema, query);
+    return this.conversions.listOutputs(parsed.companyId, parsed.truckId);
   }
 
   @Get(':name')

@@ -171,3 +171,15 @@ model Conversion {
   @@index([unitId])
   @@map("conversions")
 }
+
+/// Exact exported CSV plus structured trips for reports. One immutable copy per output name.
+/// Conversion.outputFile associates this with company/truck history, including after merges.
+model StoredOutput {
+  name      String   @id
+  csv       String   @db.Text
+  version   Int      @default(1)
+  trips     Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("stored_outputs")
+}

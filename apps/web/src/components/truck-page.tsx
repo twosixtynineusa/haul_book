@@ -10,6 +10,7 @@ import { formatIsoDate, truckChanges, truckDraft, type TruckDraft } from '@/lib/
 import { formatDateTime, formatDistance, plural } from '@/lib/format';
 import { formatOdo, historyTotals, rangeText } from '@/lib/history';
 import { HistoryTable } from './history-table';
+import { CompanyFiles } from './company-files';
 import { MoveTruck } from './move-truck';
 import { fieldClass } from './sources-panel';
 import { Alert, Button, Card, buttonClass, cx } from './ui';
@@ -138,7 +139,7 @@ export function TruckPage({ id }: { id: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/companies?company=${company.id}`} className={buttonClass('ghost', 'px-2')}>
+        <Link href={`/companies/${company.id}`} className={buttonClass('ghost', 'px-2')}>
           <ArrowLeft className="size-4" aria-hidden /> {company.name}
         </Link>
       </div>
@@ -178,10 +179,7 @@ export function TruckPage({ id }: { id: string }) {
             </span>
             <span className="flex items-center gap-2">
               <Building2 className="size-4 text-muted-foreground" aria-hidden />
-              <Link
-                href={`/companies?company=${company.id}`}
-                className="text-primary hover:underline"
-              >
+              <Link href={`/companies/${company.id}`} className="text-primary hover:underline">
                 {company.name}
               </Link>
             </span>
@@ -312,13 +310,19 @@ export function TruckPage({ id }: { id: string }) {
             <Link href="/" className={buttonClass('secondary')}>
               <FileUp className="size-4" aria-hidden /> Convert a report
             </Link>
-            <Link href={`/companies?company=${company.id}`} className={buttonClass('ghost')}>
+            <Link href={`/companies/${company.id}`} className={buttonClass('ghost')}>
               <Building2 className="size-4" aria-hidden /> Company &amp; its trucks
             </Link>
           </div>
         </div>
       </Card>
 
+      <CompanyFiles
+        key={`${company.id}:${truck.id}`}
+        companyId={company.id}
+        truckId={truck.id}
+        onUpdated={load}
+      />
       <Card
         title="Converted reports"
         action={

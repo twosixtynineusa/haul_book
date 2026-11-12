@@ -171,7 +171,13 @@ export function HistoryTable({
                               <td className="py-1 pr-3 text-right tabular-nums">
                                 {formatDistance(t.distance, e.distanceUnit)}
                               </td>
-                              <td className="py-1">{t.states.join(' → ')}</td>
+                              <td className="py-1">
+                                {t.promiles
+                                  ? t.promiles.legs
+                                      .map((l) => `${l.state}: ${l.distance}`)
+                                      .join(' · ')
+                                  : `${t.states.join(' → ')} (state mileage unavailable)`}
+                              </td>
                             </tr>
                           ))}
                         </tbody>

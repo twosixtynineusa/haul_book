@@ -9,9 +9,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import type { Queue } from 'bullmq';
-import { SourceChoiceSchema, type InboxEntry, type InboxList } from '@haulbook/shared';
+import {
+  SourceChoiceSchema,
+  HistoryQuerySchema,
+  type InboxEntry,
+  type InboxList,
+} from '@haulbook/shared';
 import { parseBody } from '../common/parse-body';
 import { INBOX_QUEUE, QueueModule, SCAN_JOB } from '../queue/queue.module';
 import { InboxModule } from './inbox.module';
@@ -30,8 +36,9 @@ export class InboxController {
   ) {}
 
   @Get()
-  list(): Promise<InboxList> {
-    return this.inbox.list();
+  list(@Query() query: unknown): Promise<InboxList> {
+    const { companyId, truckId } = parseBody(HistoryQuerySchema, query);
+    return this.inbox.list(companyId, truckId);
   }
 
   /** Fill in format / company / unit # and convert now. */

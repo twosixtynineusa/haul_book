@@ -27,7 +27,6 @@ export interface ConfirmOptions {
   tone?: 'danger' | 'primary';
 }
 
-const KEPT_ORIGINAL = 'The original report, in the archive folder';
 const MAX_LISTED = 8;
 
 /** "22, 25 and 31", or "22, 25, … and 9 more". */
@@ -154,17 +153,26 @@ function produced(entry: InboxEntry): string[] {
   ];
 }
 
+/** The processed report itself, where it was put away: archive/… or failed/…. */
+function original(entry: InboxEntry): string[] {
+  if (!entry.archivedPath) return [];
+  const folder = entry.archivedPath.startsWith('failed/') ? 'failed' : 'archive';
+  return [`The original report, from the ${folder} folder`];
+}
+
 export function deleteEntryConfirm(entry: InboxEntry): ConfirmOptions {
   const converted = entry.status === 'converted' && entry.outputs.length > 0;
   return {
-    title: converted ? `Delete ${entry.name}?` : `Remove ${entry.name} from the list?`,
+    title: `Delete ${entry.name}?`,
     itemsLabel: 'This deletes',
-    items: ['Its row in the input folder list', ...(converted ? produced(entry) : [])],
-    kept: [KEPT_ORIGINAL],
-    message: converted
-      ? 'The same report can then be dropped in the input folder and converted again.'
-      : 'It produced no ProMiles file, so nothing else goes.',
-    confirmLabel: converted ? 'Delete' : 'Remove',
+    items: [
+      'Its row in the input folder list',
+      ...original(entry),
+      ...(converted ? produced(entry) : []),
+    ],
+    message:
+      'This can’t be undone. To convert this report later, drop a copy of it in the input folder.',
+    confirmLabel: 'Delete',
     tone: 'danger',
   };
 }

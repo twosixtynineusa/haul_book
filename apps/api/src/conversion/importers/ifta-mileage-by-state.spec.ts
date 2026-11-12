@@ -5,6 +5,7 @@ import { detectFormat, detectFormats } from '.';
 import {
   bellamspAnirImporter,
   hos247Importer,
+  quickELogsImporter,
   unitFromVehicleFileName,
 } from './ifta-mileage-by-state';
 import { wialonImporter } from './wialon';
@@ -35,10 +36,11 @@ function report(lines: string[], period = '2026/10/01 - 2026/10/31'): UploadedFi
 
 describe('IFTA Mileage By State (Bellfam ELD) — the sample export', () => {
   it('is recognised as Bellfam ELD or HOS 247, which export the same layout', () => {
-    expect(detectFormats(SAMPLE)).toEqual(['bellamsp-anir', 'hos247']);
+    expect(detectFormats(SAMPLE)).toEqual(['bellamsp-anir', 'hos247', 'quick-e-logs']);
     expect(detectFormat(SAMPLE)).toBeNull(); // ambiguous: the company's source or the user decides
     expect(wialonImporter.detect(SAMPLE)).toBe(false);
     expect(hos247Importer.read(SAMPLE, [])).toEqual(bellamspAnirImporter.read(SAMPLE, []));
+    expect(quickELogsImporter.read(SAMPLE, [])).toEqual(bellamspAnirImporter.read(SAMPLE, []));
   });
 
   it('reads the carrier as the company and the vehicle Name as the unit #', () => {

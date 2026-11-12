@@ -42,18 +42,21 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
 - A file is read only after its size + mtime are unchanged across two scans. Never read it on
   first sight. Mtimes are compared as whole ms: a nanosecond float doesn't round-trip through
   Postgres exactly, and the file would never settle.
-- Never delete a source file: converted → `INPUT_DIR/archive/<YYYY-MM-DD>/<rel path>`, set aside
-  → `INPUT_DIR/failed/`, both never overwriting (`_2`). Files needing input stay where they are.
+- Processing never deletes a source file: converted → `INPUT_DIR/archive/<YYYY-MM-DD>/<rel path>`,
+  set aside → `INPUT_DIR/failed/`, both never overwriting (`_2`). Files needing input stay where
+  they are. The only code that deletes a source is the user's delete of its row (below).
 - **Undoing a processed file** (converted / duplicate / dismissed row; `DELETE /inbox/:id`,
-  `POST /inbox/:id/reprocess`): delete removes the row **and what it produced**: its ProMiles
-  file(s) and `conversions` rows (`ConversionService.forget` → `HistoryService.forget`), by the
-  owner's decision (2026-11-11). Reprocess moves the source back out of `archive/` (or
+  `POST /inbox/:id/reprocess`): delete removes the row **and everything it left behind**: its
+  source in `archive/` or `failed/` (plus folders that leaves empty, never `archive/` or
+  `failed/` themselves), its ProMiles file(s) and `conversions` rows (`ConversionService.forget`
+  → `HistoryService.forget`), by the owner's decisions (2026-11-11). It deletes only that row's
+  own copy: a duplicate's `_2` copy is its own row's. Reprocess moves the source back out of `archive/` (or
   `failed/`) into the input folder, forgets the same way, and converts it again in place (same
   row), with any `SourceChoice` sent as the user's entry. The row is claimed (`processing`)
   before the file moves, so a scan never takes it for a new file. Forgetting puts each truck
   back: its latest activity from what's left of its history, and a saved odometer that
   conversion wrote back to the reading it began from, so converting again starts at the same
-  Begin Odo. The archived source is still never deleted.
+  Begin Odo.
 - Company precedence: user entry → the file → company subfolder → the single saved company with
   that unit # (all of them, for a file with several trucks). Several such companies → the file
   `needs: company` with `companyOptions`; never pick one silently. (ConversionService does the

@@ -85,7 +85,9 @@ export interface InboxState {
 export function useInbox(
   /** Something was converted, changed or deleted: refresh the outputs and the companies. */
   onChanged: () => void,
+  scope: { companyId?: string; truckId?: string } = {},
 ): InboxState {
+  const { companyId, truckId } = scope;
   const [inbox, setInbox] = useState<InboxList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -94,7 +96,7 @@ export function useInbox(
 
   const refresh = useCallback(async () => {
     try {
-      const next = await listInbox();
+      const next = await listInbox({ companyId, truckId });
       const newest = next.recent[0]?.id ?? null;
       // New conversions by the worker → refresh the panels that show them.
       if (latest.current !== undefined && newest !== latest.current) onChanged();
@@ -104,7 +106,7 @@ export function useInbox(
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [onChanged]);
+  }, [onChanged, companyId, truckId]);
 
   useEffect(() => {
     void refresh();

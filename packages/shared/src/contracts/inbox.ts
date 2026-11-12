@@ -19,8 +19,8 @@ import { PeriodSchema, SourceFormatIdSchema, SourceNeedSchema } from './sources'
  *   POST   /api/v1/inbox/:id/reprocess  body: SourceChoice (may be {})  → InboxEntry
  *          (its source goes back into the input folder and converts again, with the body as
  *          the user's entry; the ProMiles file(s) and history it produced before are deleted)
- *   DELETE /api/v1/inbox/:id            → 204 (the row, its ProMiles file(s) and its history;
- *          the archived source stays)
+ *   DELETE /api/v1/inbox/:id            → 204 (the row, its source in archive/ or failed/,
+ *          its ProMiles file(s) and its history)
  */
 export const InboxStatusSchema = z.enum([
   'waiting',

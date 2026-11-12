@@ -124,8 +124,11 @@ export function convertFiles(
   );
 }
 
-export function listOutputs() {
-  return request<OutputList>('/api/v1/outputs', { method: 'GET' }, OutputListSchema);
+export function listOutputs(scope: { companyId?: string; truckId?: string } = {}) {
+  const qs = new URLSearchParams(
+    Object.entries(scope).filter(([, v]) => !!v) as [string, string][],
+  );
+  return request<OutputList>(`/api/v1/outputs?${qs}`, { method: 'GET' }, OutputListSchema);
 }
 
 export function listCompanies() {
@@ -174,8 +177,11 @@ export function downloadUrl(name: string): string {
 }
 
 /** The watched input folder (INPUT_DIR): files needing attention + recently processed. */
-export function listInbox() {
-  return request<InboxList>('/api/v1/inbox', { method: 'GET' }, InboxListSchema);
+export function listInbox(scope: { companyId?: string; truckId?: string } = {}) {
+  const qs = new URLSearchParams(
+    Object.entries(scope).filter(([, v]) => !!v) as [string, string][],
+  );
+  return request<InboxList>(`/api/v1/inbox?${qs}`, { method: 'GET' }, InboxListSchema);
 }
 
 function inboxAction(id: string, action: 'retry' | 'dismiss') {

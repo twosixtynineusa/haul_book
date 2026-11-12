@@ -2,6 +2,48 @@
 
 Shipped work, newest first.
 
+## 2026-11-12 — Company file views, database CSV archive and PDF reports
+- Removed the Input/Output folder cards from the Dashboard. File activity and saved downloads
+  now live on the related company and truck pages; **Rescan input folder** remains at the top
+  of the Dashboard alongside the existing waiting-for-input flow.
+- New `stored_outputs` migration saves exact CSV contents and structured ProMiles trips/state
+  legs transactionally with conversion history. Downloads use the database copy. Startup
+  recovers existing output CSVs and enriches matching history without re-conversion or guessed data.
+- Company pages offer date-filtered PDF reports with company/state totals and truck detail.
+  Repeated exact periods use the latest conversion; overlapping periods withhold aggregate totals,
+  partial periods are excluded explicitly, and missing historical state detail is disclosed.
+- Added persistence/recovery/scoping/report tests and a rendered fictional multipage PDF check.
+  Snapshot and PDF behavior is specified in `docs/reporting.md` v1.
+
+## 2026-11-11 — Dedicated company pages
+- Companies now opens each company at `/companies/<id>` instead of expanding a list row.
+  Its page keeps the details, approved source, truck list and add/edit/move/merge/delete controls.
+- Adding a company opens its page; deleting returns to the list, and merging opens the target
+  company. Truck links and old `?company=<id>` bookmarks lead to the dedicated page.
+
+## 2026-11-11 — Quick E Logs, Forza ELD and Big Road importers
+- **Quick E Logs** joins Bellfam ELD and HOS 247's shared CSV layout. All three appear as
+  format choices; the company's approved source resolves later reports automatically.
+- **Forza ELD** reads its IFTA Mileage by State CSV: company, period and truck number come
+  from the file, preserving leading zeros and ignoring random export filenames.
+- **Big Road** reads legacy Excel Vehicle Mileage reports with one or more trucks. The
+  workbook has no company or reporting period; company resolution follows the existing rules,
+  and the user must supply a period within one quarter. Export and exception dates are never
+  used as the period. Positive **Unknown** mileage refuses conversion with a correction message;
+  those miles are never omitted silently or assigned to a state.
+- Fictional fixtures and golden ProMiles outputs cover the new layouts; regression tests
+  cover source approval, period entry, separate trucks, portal conversion and the watched folder.
+  Real samples remain local and uncommitted.
+
+## 2026-11-11 — Deleting an input-folder file deletes its original report too
+- **Delete** on a processed input-folder row (converted, duplicate or set aside) now also
+  deletes **the original report** from `archive/` or `failed/`, and any folders that leaves
+  empty, along with the ProMiles file(s) and history it produced (the owner's decision). Only
+  that row's own copy goes: a duplicate's `_2` copy belongs to the duplicate's row.
+- The confirm dialog lists the original report under **This deletes**, says it can't be
+  undone, and every row's bin is now **Delete** (no more "Remove from the list").
+- Specs: a converted and a duplicate row's archived copies, a set-aside file in `failed/`.
+
 ## 2026-11-11 — ProMiles unit # per truck; in-app confirm dialog
 - **Each truck has a ProMiles unit #** (`Unit.promilesUnit`, migration `promiles_unit`): the unit
   # written to column A of the ProMiles CSV, when it differs from the truck # in the source

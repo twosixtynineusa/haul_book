@@ -1,0 +1,6 @@
+###TRIPSUMMARY2,,,,,,,,,,,
+Unit#,Begin Date,End date,Begin Odo,D(istance) or O(dometer),M(iles) or K(ilometers),State,Distance or Odometer,Toll Distance,Empty(Y/N),Off Road(Y/N),"Permitting (None, IFTA, Mile, Both)"
+07,10/1/2026,10/31/2026,1,D,M,AR,412,0,n,n,
+,,,,,,MO,389,0,n,n,
+,,,,,,OK,1205,0,n,n,
+,,,,,,TX,2316,0,n,n,

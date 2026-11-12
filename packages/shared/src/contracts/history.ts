@@ -18,6 +18,25 @@ const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const HistoryOriginSchema = z.enum(['portal', 'inbox']);
 export type HistoryOrigin = z.infer<typeof HistoryOriginSchema>;
 
+/** Exact values exported to ProMiles, with continuation rows grouped into their trip. */
+export const ProMilesTripSchema = z.object({
+  unit: z.string(),
+  beginDate: IsoDateSchema,
+  endDate: IsoDateSchema,
+  beginOdo: z.string(),
+  mode: z.literal('D'),
+  distanceUnit: DistanceUnitSchema,
+  legs: z.array(z.object({
+    state: z.string(),
+    distance: z.string(),
+    tollDistance: z.string(),
+    empty: z.string(),
+    offRoad: z.string(),
+    permitting: z.string(),
+  })),
+});
+export type ProMilesTrip = z.infer<typeof ProMilesTripSchema>;
+
 /** One ProMiles trip of a converted report (usually a month). */
 export const HistoryTripSchema = z.object({
   beginDate: IsoDateSchema,
@@ -27,6 +46,8 @@ export const HistoryTripSchema = z.object({
   endOdo: z.string().nullable(),
   distance: z.number(),
   states: z.array(z.string()),
+  /** Absent on old history whose CSV is no longer available. Never invent state mileage. */
+  promiles: ProMilesTripSchema.optional(),
 });
 export type HistoryTrip = z.infer<typeof HistoryTripSchema>;
 

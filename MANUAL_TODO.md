@@ -29,6 +29,10 @@
 - [ ] **Wialon Remote API token** for the "Pull straight from Wialon" roadmap item.
 
 ## Section C — Verification (data / correctness)
+- [ ] Convert a **Quick E Logs**, **Forza ELD** and **Big Road** report and import each into
+  FuelTaxOnline under the correct customer. Confirm "Failures: 0" and matching state miles.
+  For Big Road, confirm the actual reporting period yourself (the workbook has none); correct
+  any Unknown mileage in the source system and re-export before conversion.
 - [ ] Import a file the portal made from a **raw Wialon export** into FuelTaxOnline and confirm
   "Imported: 1, Failures: 0" (a real export passed on 2026-11-06, so this is a formality).
 - [ ] Convert a Wialon report in the portal, pick the company it belongs to, and import the

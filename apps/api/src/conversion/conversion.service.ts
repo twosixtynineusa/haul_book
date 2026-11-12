@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
 import {
   BadRequestException,
   Injectable,
@@ -163,15 +164,17 @@ export class ConversionService implements OnModuleInit {
     if (!preview.ready) throw new BadRequestException(describeProblems(preview));
 
     const saved: SavedOutput[] = [];
+    const snapshots: { name: string; csv: string }[] = [];
     const history: HistoryRecord[] = [];
     for (const output of outputs) {
       const name = await this.writeUnique(outputBaseName(output), output.csv);
+      snapshots.push({ name, csv: output.csv });
       saved.push({ ...(await this.describe(name)), company: output.company, units: output.units });
       history.push(...historyRecords(output, name, ready, options.origin ?? 'portal'));
       this.logger.log(`Saved ${name} (${output.trips.length} trip(s)) to ${env.outputDirLabel}`);
     }
     await this.companies.record(outputs.map((o) => recordEntry(o, ready)));
-    await this.history.record(history);
+    await this.history.record(history, snapshots);
     return { ...preview, outputs: saved, outputDir: env.outputDirLabel };
   }
 
@@ -195,21 +198,42 @@ export class ConversionService implements OnModuleInit {
     }
   }
 
-  async listOutputs(): Promise<OutputList> {
+  async listOutputs(companyId?: string, truckId?: string): Promise<OutputList> {
+    const stored = await this.history.storedOutputs(companyId, truckId);
+    if (companyId || truckId)
+      return {
+        outputDir: env.outputDirLabel,
+        files: stored.map((o) => ({
+          name: o.name,
+          size: Buffer.byteLength(o.csv),
+          createdAt: o.createdAt.toISOString(),
+        })),
+      };
     let names: string[] = [];
     try {
       names = (await fsp.readdir(env.outputPath)).filter((n) => OUTPUT_NAME_RE.test(n));
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
-    const files = await Promise.all(names.map((n) => this.describe(n)));
+    const files = await Promise.all(
+      names.filter((n) => !stored.some((o) => o.name === n)).map((n) => this.describe(n)),
+    );
+    files.push(
+      ...stored.map((o) => ({
+        name: o.name,
+        size: Buffer.byteLength(o.csv),
+        createdAt: o.createdAt.toISOString(),
+      })),
+    );
     files.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.name.localeCompare(b.name));
     return { outputDir: env.outputDirLabel, files: files.slice(0, MAX_LISTED) };
   }
 
   /** Opens a converted file for download. Only plain `*.csv` names inside the output folder. */
-  async openOutput(name: string): Promise<{ name: string; stream: fs.ReadStream }> {
+  async openOutput(name: string): Promise<{ name: string; stream: Readable }> {
     const filePath = this.resolveOutput(name);
+    const stored = await this.history.storedOutput(name);
+    if (stored) return { name, stream: Readable.from([stored.csv]) };
     try {
       await fsp.access(filePath, fs.constants.R_OK);
     } catch {
@@ -584,6 +608,7 @@ export class ConversionService implements OnModuleInit {
     await fsp.mkdir(env.outputPath, { recursive: true });
     for (let n = 1; n < 1000; n++) {
       const name = n === 1 ? `${base}.csv` : `${base}_${n}.csv`;
+      if (await this.history.storedOutput(name)) continue;
       const filePath = this.resolveOutput(name);
       try {
         await fsp.writeFile(filePath, csv, { encoding: 'utf8', flag: 'wx' });

@@ -1,17 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, ChevronDown, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Building2, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
 import { sourceName, type Company } from '@haulbook/shared';
 import { createCompany, listCompanies } from '@/lib/api';
 import { filterCompanies } from '@/lib/companies';
 import { formatDateTime, plural } from '@/lib/format';
-import { CompanyDetail } from './company-detail';
 import { fieldClass } from './sources-panel';
 import { Alert, Button, Card, buttonClass, cx } from './ui';
-
-const byName = (a: Company, b: Company) =>
-  a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' });
 
 /**
  * The Companies tab: every saved company with its trucks. Conversions add them
@@ -21,7 +19,7 @@ export function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
@@ -38,24 +36,14 @@ export function CompaniesPage() {
 
   useEffect(() => {
     void refresh();
-    // `/companies?company=<id>` (a truck page's links) opens that company.
-    const wanted = new URLSearchParams(window.location.search).get('company');
-    if (wanted) setOpenId(wanted);
   }, [refresh]);
-
-  const replace = (company: Company) =>
-    setCompanies((prev) =>
-      [...(prev ?? []).filter((c) => c.id !== company.id), company].sort(byName),
-    );
-  const drop = (id: string) => setCompanies((prev) => prev?.filter((c) => c.id !== id) ?? null);
 
   const add = async () => {
     setSaving(true);
     setAddError(null);
     try {
       const company = await createCompany({ name: newName });
-      replace(company);
-      setOpenId(company.id);
+      router.push(`/companies/${company.id}`);
       setAdding(false);
       setNewName('');
     } catch (e) {
@@ -83,8 +71,8 @@ export function CompaniesPage() {
         <p className="text-sm text-muted-foreground">
           Companies and trucks are added automatically when a file is converted. Each company
           imports from its one approved source: a file from a different source waits on the
-          Dashboard until you confirm it, which makes that source the approved one. Click a truck #
-          to see the truck and every report converted for it.
+          Dashboard until you confirm it, which makes that source the approved one. Click a company
+          to open its page and manage its trucks.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -157,60 +145,31 @@ export function CompaniesPage() {
         )}
 
         <ul className="space-y-2">
-          {shown.map((c) => {
-            const open = openId === c.id;
-            return (
-              <li key={c.id} className="rounded-lg border border-border">
-                <button
-                  type="button"
-                  onClick={() => setOpenId(open ? null : c.id)}
-                  aria-expanded={open}
-                  className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-muted/50"
-                >
-                  {open ? (
-                    <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : (
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  )}
-                  <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
-                  {c.source && (
-                    <span
-                      className="rounded bg-primary-soft px-1.5 py-0.5 text-[11px] font-medium text-primary"
-                      title="Approved source"
-                    >
-                      {sourceName(c.source)}
-                    </span>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {plural(c.trucks.length, 'truck')}
-                    {c.dotNumber && ` · USDOT ${c.dotNumber}`}
-                    {c.lastConvertedAt && ` · last converted ${formatDateTime(c.lastConvertedAt)}`}
+          {shown.map((c) => (
+            <li key={c.id} className="rounded-lg border border-border">
+              <Link
+                href={`/companies/${c.id}`}
+                className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-muted/50"
+              >
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                {c.source && (
+                  <span
+                    className="rounded bg-primary-soft px-1.5 py-0.5 text-[11px] font-medium text-primary"
+                    title="Approved source"
+                  >
+                    {sourceName(c.source)}
                   </span>
-                </button>
-                {open && (
-                  <CompanyDetail
-                    company={c}
-                    others={(companies ?? []).filter((o) => o.id !== c.id)}
-                    onSaved={replace}
-                    onDeleted={() => {
-                      drop(c.id);
-                      setOpenId(null);
-                    }}
-                    onMerged={(target) => {
-                      drop(c.id);
-                      replace(target);
-                      setOpenId(target.id);
-                    }}
-                    onTruckMoved={(moved) => {
-                      replace(moved.from);
-                      replace(moved.into);
-                    }}
-                  />
                 )}
-              </li>
-            );
-          })}
+                <span className="text-xs text-muted-foreground">
+                  {plural(c.trucks.length, 'truck')}
+                  {c.dotNumber && ` · USDOT ${c.dotNumber}`}
+                  {c.lastConvertedAt && ` · last converted ${formatDateTime(c.lastConvertedAt)}`}
+                </span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </div>
     </Card>

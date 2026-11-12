@@ -1,0 +1,14 @@
+FORZAP - IFTA Mileage by State
+Summary of total mileage by state for selected vehicle
+Carrier: ACME TRUCKING LLC
+Period: 10/01/2026 - 10/31/2026
+Report generated: 11/08/2026 05:08
+VIN: 1FAKEVIN0LJ000007
+Vehicle info
+Name,Make,Model,Year
+07,VOLVO,VNL,2018
+State,Miles
+AR,412.49
+MO,388.50
+OK,1204.55
+TX,2316.06

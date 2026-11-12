@@ -29,6 +29,9 @@ Everything runs locally in Docker: nothing is uploaded anywhere, and there is no
 | **Motive**: Distance summary by vehicle (CSV) | ✅ supported: unit #s read from the file; it has no dates, so you give the period (the month before the export is offered) |
 | **Swift ELD**: IFTA Report (Excel .xls) | ✅ supported: company and unit #s read from the file (several trucks per file are fine) |
 | **Vista ELD**: IFTA Report (Excel .xls) | ✅ supported: same workbook as Swift ELD, so the company's source decides, or you pick |
+| **Quick E Logs**: IFTA Mileage By State (CSV) | ✅ supported: same layout as Bellfam ELD / HOS 247; company and truck read from the file |
+| **Forza ELD**: IFTA Mileage by State (CSV) | ✅ supported: company and truck read from the file, including leading zeros |
+| **Big Road**: Vehicle Mileage (Excel .xls) | ✅ supported: one or more trucks; select the company and reporting period; reports with Unknown miles are refused |
 
 Sample exports from other ELD systems are welcome. See [Contributing](#contributing).
 
@@ -231,9 +234,9 @@ path; your user folder is shared by default.
 1. **Add mileage reports.** Drop one or more CSV or Excel exports on the portal. For Wialon, run
    the **IFTA Single Unit Mileage Report** and export it as CSV, keeping Wialon's file name,
    because the unit # is read from it (`22_IFTA_Single_Unit_Mileage_Report_….csv` → unit 22).
-   For Bellfam ELD or HOS 247, export the **IFTA Mileage By State** CSV for one vehicle and period; the
+   For Bellfam ELD, HOS 247 or Quick E Logs, export the **IFTA Mileage By State** CSV for one vehicle and period; the
    carrier and unit # are read from the file, and miles are rounded to whole miles per state.
-   Both systems export the same layout: a company's first file asks which one it came from, and
+   All three systems export the same layout: a company's first file asks which one it came from, and
    later files for that company use the same answer.
    For Ezlogz, export the **Mileage Report** CSV for one unit (any number of months); the unit #
    is read from the file, the company isn't in it, and each month becomes its own trip.
@@ -247,6 +250,12 @@ path; your user folder is shared by default.
    company and unit #s are read from its "All trucks" sheet, and each truck becomes one trip for
    the report's period, miles rounded to whole miles per state. Both systems export the same
    workbook: a company's first file asks which one it came from, and later files use that answer.
+   For Forza ELD, export **IFTA Mileage by State** as CSV. The report supplies its company,
+   truck and period; its filename can be anything.
+   For Big Road, export **Vehicle Mileage** as Excel `.xls`. Select its company and enter the
+   reporting period (inside one quarter): neither is in the workbook, and the filename date
+   is only the export date. Each truck converts separately. If the report has **Unknown miles**,
+   correct their state assignments in the source system and export again before converting.
 2. **Company & unit.** Each file shows its source format (detected, or picked from a dropdown) and
    its company and unit #. Fields read from the file are marked. A file with no company is
    matched **by its unit #** to the one saved company running that truck (marked "by unit #"),
@@ -268,8 +277,9 @@ path; your user folder is shared by default.
      the truck's next conversion starts there by itself ("Saved: end of …"). Typing a value
      overrides the saved one. With nothing typed or saved, `1` is written: ProMiles requires a
      value, and `1` imports fine.
-4. **Convert & save.** The file is written to your output folder and listed on the Dashboard's
-   **Output folder** card with a download link. Each converted report is logged on the **History** tab.
+4. **Convert & save.** The file is written to your output folder and saved in the database,
+   including its state mileage. Downloads and file activity are on the company's and truck's
+   pages. Each converted report is also logged on the **History** tab.
 5. **Import into ProMiles.** In FuelTaxOnline, select that company as the customer, open
    **Import Data**, choose the file and upload it.
 
@@ -300,29 +310,38 @@ Inbox/
   do, the file waits and the portal asks which.
 - If something is missing, the file stays put and a **Waiting for you** card appears at the top
   of the Dashboard asking for it. Fill it in and click **Convert**.
-- Converted sources move to `archive/<date>/`; a source report is never deleted. Dropping the
-  same file again archives it as a duplicate instead of converting it twice.
-- A new file can take up to two scan intervals to appear. The ⟳ button on the Dashboard's
-  **Input folder** card checks now; its folder button shows where the folder is and copies the
-  path.
+- Converted sources move to `archive/<date>/`; the app deletes a source report only when you
+  delete its row (below). Dropping the same file again archives it as a duplicate instead of
+  converting it twice.
+- A new file can take up to two scan intervals to appear. **Rescan input folder** at the top
+  of the Dashboard queues a scan now. Files needing attention still appear there.
 
-The **Input folder** card lists the latest files that came through, each with its download and
+On each company or truck page, the **Input folder** card lists its related files, each with its download and
 three ways to undo it:
 
 - **Correct** (pencil): change the company, truck #, source or dates, then **Save & convert
   again**.
 - **Convert again** (circular arrow): run the file again as it is, for example after fixing the
   company's approved source or a truck's odometer.
-- **Delete** (bin): remove the row together with the ProMiles file and the history entries it
-  produced. The same file can then be dropped and converted again.
+- **Delete** (bin): remove the row together with the original report (from `archive/` or
+  `failed/`) and the ProMiles file and history entries it produced. It can't be undone; to
+  convert the report later, drop a copy of it in the input folder.
 
 Converting again replaces the ProMiles file and history the file produced before, and starts
-at the same odometer as the first time. In every case the original report stays in `archive/`.
+at the same odometer as the first time; the original report goes back to `archive/`.
 
 ### Companies tab
 
-The **Companies** tab lists every saved company with its trucks. When a file is converted, its
+The **Companies** tab lists every saved company. Click a company to open its own page
+(`/companies/<id>`) with its details, approved source and trucks. When a file is converted, its
 company and unit # are added automatically, whether they were read from the file or picked by you.
+
+Each company page has a **Company PDF report** download, with optional From/Through dates.
+It includes company and state totals plus each truck's trips and state mileage. It uses the
+latest conversion of each truck and exact period, flags overlapping periods, and explains any
+older reports missing state detail. Only complete trips within the chosen dates are included.
+Existing CSVs still in the output folder are recovered into the database automatically;
+new downloads remain available even if their host file is removed. See [reporting rules](docs/reporting.md).
 
 - **Search** by company name, USDOT #, truck #, ProMiles unit #, VIN or plate.
 - **Every delete, merge or move asks first** in the app's own dialog, listing exactly what goes

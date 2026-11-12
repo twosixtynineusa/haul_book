@@ -129,7 +129,11 @@ function RecentRow({
                 disabled={!!busy}
                 onClick={() => void remove()}
                 aria-label={`Delete ${entry.name}`}
-                title={entry.status === 'converted' ? 'Delete, with its ProMiles file' : 'Remove'}
+                title={
+                  entry.status === 'converted'
+                    ? 'Delete, with the report and its ProMiles file'
+                    : 'Delete, with the report'
+                }
               >
                 {busy === 'delete' ? (
                   <Loader2 className="size-4 animate-spin" />

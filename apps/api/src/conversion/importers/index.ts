@@ -1,7 +1,9 @@
 import type { SourceFormatId } from '@haulbook/shared';
 import type { UploadedFile } from '../common';
 import { ezlogzImporter } from './ezlogz';
-import { bellamspAnirImporter, hos247Importer } from './ifta-mileage-by-state';
+import { bellamspAnirImporter, hos247Importer, quickELogsImporter } from './ifta-mileage-by-state';
+import { forzaEldImporter } from './forza-eld';
+import { bigRoadImporter } from './big-road';
 import { swiftImporter, vistaEldImporter } from './ifta-spreadsheet';
 import { motiveImporter } from './motive';
 import type { Importer } from './types';
@@ -15,6 +17,9 @@ export const IMPORTERS: Record<SourceFormatId, Importer> = {
   'bellamsp-anir': bellamspAnirImporter,
   ezlogz: ezlogzImporter,
   hos247: hos247Importer,
+  'quick-e-logs': quickELogsImporter,
+  'forza-eld': forzaEldImporter,
+  'big-road': bigRoadImporter,
   motive: motiveImporter,
   swift: swiftImporter,
   'vista-eld': vistaEldImporter,

@@ -6,29 +6,6 @@
 
 ## Next — source importers (new providers)
 
-Every provider with a sample export is built (Wialon, Bellfam ELD, Ezlogz, HOS 247, Motive,
-Swift ELD, Vista ELD). Three more providers have real samples in `New folder/` (git-ignored,
-never committed):
-
-- **Quick E Logs** (`Quick E Logs/`, 4 monthly CSVs, one truck each): the **same layout** as
-  Bellfam ELD / HOS 247 ("IFTA Mileage By State", `Carrier:`, `Period: YYYY/MM/DD - …`, a
-  Vehicle/Name/Make/Model/Year row, then State,Miles; file named `Vehicle-<N>-…-mileage-report_…`).
-  Mostly a new id: add it to the shared-layout importer (`ifta-mileage-by-state.ts`), so such a
-  file gets three `formatOptions` and the company's approved source settles it.
-- **Forza ELD** (`FORZA-ELD/`, 3 monthly CSVs, one truck each, random file names): its own
-  layout. A title line (`… - IFTA Mileage by State`), `Carrier:`, `Period: MM/DD/YYYY - MM/DD/YYYY`,
-  `Report generated:`, `VIN:`, then a `Name,Make,Model,Year` row whose **Name is the unit #**,
-  then `State,Miles` rows. Company and unit come from the file, never the file name. Detect on
-  the title line + the `Name,Make,Model,Year` / `State,Miles` headers.
-- **Big Road** (`big road/`, 4 files): **legacy Excel `.xls`, not CSV**, so it uses
-  `conversion/xls.ts`. Sheets `Summary`, `Vehicle Mileage` and sometimes `Exceptions`
-  (Truck / Start date / End date / Message). Mileage in miles, with a `Total` and possibly an
-  **`Unknown`** jurisdiction column (miles from odometer readings with no GPS state). Decide how
-  `Unknown` miles are handled before building (warn and leave them out, or refuse the file);
-  never assign them to a state. Read the real layout from the samples with a temporary spec
-  first: whether it holds one or several trucks, and whether it names the company (if not, the
-  file `needs: company`). The file name's date is the export date, not the period.
-
 When a sample from a new provider arrives (kept locally, git-ignored, MANUAL_TODO §B):
 
 1. Add `importers/<provider>.ts` implementing `Importer`:

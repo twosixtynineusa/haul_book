@@ -13,6 +13,7 @@ import { PrismaModule } from '../src/prisma/prisma.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { INBOX_QUEUE } from '../src/queue/queue.module';
 import { RAW, RAW_NAME, fixture } from './helpers/wialon-report';
+import { bigRoadReport } from './helpers/big-road-report';
 
 /**
  * The watched input folder end to end against a real Postgres 18
@@ -80,6 +81,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   beforeEach(async () => {
     await prisma.inboxFile.deleteMany();
     await prisma.conversion.deleteMany();
+    await prisma.storedOutput.deleteMany();
     await prisma.company.deleteMany();
     clear(INPUT);
     clear(OUTPUT);
@@ -145,6 +147,19 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
         beginOdo: null,
       }),
     ]);
+    expect((await prisma.storedOutput.findUnique({ where: { name: output } }))?.csv).toBe(EXPECTED);
+    const other = await companies.create({ name: 'OTHER TEST LLC' });
+    expect((await inbox.list(other.id)).recent).toEqual([]);
+    expect((await inbox.list(saved.id, saved.trucks[0].id)).recent).toHaveLength(1);
+    // The database copy still downloads when a host folder file is moved or removed.
+    fs.unlinkSync(path.join(OUTPUT, output));
+    const downloaded = await request(server()).get(`/api/v1/outputs/${output}`).expect(200);
+    expect(downloaded.text).toBe(EXPECTED);
+    const files = await request(server()).get(`/api/v1/outputs?companyId=${saved.id}`).expect(200);
+    expect(files.body.files.map((f: { name: string }) => f.name)).toEqual([output]);
+    expect(
+      (await request(server()).get(`/api/v1/outputs?companyId=${other.id}`)).body.files,
+    ).toEqual([]);
   });
 
   it('starts a truck at its saved odometer and saves where it ends', async () => {
@@ -213,7 +228,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       company: COMPANY, // from the file's Carrier line
       unit: '7',
       format: null,
-      formatOptions: ['bellamsp-anir', 'hos247'],
+      formatOptions: ['bellamsp-anir', 'hos247', 'quick-e-logs'],
       // Truck 7 is new as well: both are asked at once.
       needs: ['format', 'promilesUnit'],
       newTrucks: ['7'],
@@ -229,6 +244,59 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     );
     expect(await settle()).toMatchObject({ converted: 1, needsInput: 0 });
     expect((await inbox.list()).recent[0]).toMatchObject({ status: 'converted', format: 'hos247' });
+  });
+
+  it.each(['hos247', 'quick-e-logs'] as const)(
+    'uses the approved %s source for a shared CSV',
+    async (source) => {
+      await companies.record([{ company: COMPANY, units: ['7'], source }]);
+      const name = 'Vehicle-7-123456-mileage-report_20261001-20261031_1794000000000.csv';
+      drop(name, fixture(name));
+      expect(await settle()).toMatchObject({ converted: 1, needsInput: 0 });
+      expect((await inbox.list()).recent[0]).toMatchObject({ format: source, status: 'converted' });
+    },
+  );
+
+  it('converts Forza with company and truck from the report', async () => {
+    await known(['07']);
+    drop('random.csv', fixture('forza_ifta.csv'));
+    expect(await settle()).toMatchObject({ converted: 1 });
+    expect((await inbox.list()).recent[0]).toMatchObject({
+      format: 'forza-eld',
+      company: COMPANY,
+      unit: '07',
+    });
+    expect(fs.readFileSync(path.join(OUTPUT, fs.readdirSync(OUTPUT)[0]), 'utf8')).toBe(
+      fixture('promiles_expected_forza_oct2026.csv').toString(),
+    );
+  });
+
+  it('holds Big Road for a period and confirms it without guessing dates', async () => {
+    await known(['007']);
+    const file = bigRoadReport();
+    drop(`${COMPANY}/${file.name}`, file.bytes);
+    expect(await settle()).toMatchObject({ converted: 0, needsInput: 1 });
+    const [held] = (await inbox.list()).pending;
+    expect(held).toMatchObject({ format: 'big-road', needs: ['period'], suggestedPeriod: null });
+    await confirm(held.id, { period: { begin: '2026-10-01', end: '2026-10-31' } });
+    expect(fs.readFileSync(path.join(OUTPUT, fs.readdirSync(OUTPUT)[0]), 'utf8')).toBe(
+      fixture('promiles_expected_big_road_oct2026.csv').toString(),
+    );
+  });
+
+  it('writes nothing for Big Road Unknown mileage', async () => {
+    const file = bigRoadReport({
+      headers: ['Truck', 'OR', 'Unknown', 'Total (mi)'],
+      rows: [['007', 100, 45, 145]],
+    });
+    drop(`${COMPANY}/${file.name}`, file.bytes);
+    await settle();
+    expect(fs.readdirSync(OUTPUT)).toEqual([]);
+    expect(await prisma.conversion.count()).toBe(0);
+    expect((await inbox.list()).pending[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('Unknown miles'),
+    });
   });
 
   it('waits until a file stops changing before picking it up', async () => {
@@ -537,7 +605,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     const day = (m: number, d: number) => new Date(Date.UTC(2026, m - 1, d));
     const reprocess = (id: string) => request(server()).post(`/api/v1/inbox/${id}/reprocess`);
 
-    it('deletes a row with its ProMiles file and history, keeping the archived source', async () => {
+    it('deletes a row with its archived source, ProMiles file and history', async () => {
       await known(['22']);
       drop(`${COMPANY}/${RAW_NAME}`);
       await settle();
@@ -546,9 +614,11 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       const { recent } = await inbox.list();
       const converted = recent.find((r) => r.status === 'converted')!;
       const duplicate = recent.find((r) => r.status === 'duplicate')!;
+      const archivedDir = path.join(INPUT, 'archive', TODAY, COMPANY);
 
-      // A duplicate produced nothing: only its row goes.
+      // A duplicate produced nothing: its row and its own archived copy go, nothing else.
       await request(server()).delete(`/api/v1/inbox/${duplicate.id}`).expect(204);
+      expect(fs.readdirSync(archivedDir)).toEqual([RAW_NAME]);
       expect(fs.readdirSync(OUTPUT)).toEqual([OUT]);
       expect(await prisma.conversion.count()).toBe(1);
 
@@ -556,7 +626,9 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       expect(fs.readdirSync(OUTPUT)).toEqual([]);
       expect(await prisma.conversion.count()).toBe(0);
       expect((await inbox.list()).recent).toEqual([]);
-      expect(fs.existsSync(path.join(INPUT, ARCHIVED))).toBe(true); // never the source
+      // The source is gone, and so are the folders it left empty; archive/ itself stays.
+      expect(fs.existsSync(path.join(INPUT, ARCHIVED))).toBe(false);
+      expect(fs.readdirSync(path.join(INPUT, 'archive'))).toEqual([]);
       // The truck is back to never converted.
       const [saved] = (await companies.list()).companies;
       expect(saved.trucks).toEqual([
@@ -638,6 +710,18 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       expect(fs.existsSync(path.join(INPUT, 'failed', RAW_NAME))).toBe(false);
       // A scan leaves it alone, like any file waiting for the user.
       expect(await inbox.scan()).toMatchObject({ found: 1, converted: 0, needsInput: 0 });
+    });
+
+    it('deletes a set-aside file from failed/ along with its row', async () => {
+      drop(`${COMPANY}/${RAW_NAME}`);
+      await settle();
+      const [waiting] = (await inbox.list()).pending;
+      await request(server()).post(`/api/v1/inbox/${waiting.id}/dismiss`).expect(200);
+      expect(fs.existsSync(path.join(INPUT, 'failed', COMPANY, RAW_NAME))).toBe(true);
+
+      await request(server()).delete(`/api/v1/inbox/${waiting.id}`).expect(204);
+      expect(fs.readdirSync(path.join(INPUT, 'failed'))).toEqual([]);
+      expect((await inbox.list()).recent).toEqual([]);
     });
 
     it('refuses a file still in the input folder, or one whose archived source is gone', async () => {

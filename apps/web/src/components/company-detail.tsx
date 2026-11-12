@@ -81,7 +81,7 @@ const DETAIL_LABELS: Record<DetailField, string> = {
   notes: 'Notes',
 };
 
-/** One company, expanded: its details, approved source, trucks, and merge / delete. */
+/** A company's details, approved source, trucks, and merge / delete controls. */
 export function CompanyDetail({
   company,
   others,
@@ -99,7 +99,7 @@ export function CompanyDetail({
   onTruckMoved: (moved: TruckMoved) => void;
 }) {
   return (
-    <div className="space-y-6 border-t border-border px-4 py-4">
+    <div className="space-y-6">
       <DetailsForm company={company} onSaved={onSaved} />
       <SourceEditor company={company} onSaved={onSaved} />
       <TrucksTable

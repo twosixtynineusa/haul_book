@@ -78,21 +78,31 @@ describe('confirm dialogs say what goes and what stays', () => {
     );
   });
 
-  it('deleting an input-folder row lists its ProMiles file and history, keeping the report', () => {
-    expect(deleteEntryConfirm(entry({}))).toMatchObject({
+  it('deleting an input-folder row lists the report, its ProMiles file and history', () => {
+    const deleted = deleteEntryConfirm(entry({}));
+    expect(deleted).toMatchObject({
       title: 'Delete report.csv?',
       items: [
         'Its row in the input folder list',
+        'The original report, from the archive folder',
         'ProMiles file ACME-TRUCKING-LLC_unit-22_2026-10.csv',
         'Its History entry for ACME TRUCKING LLC · Truck 22',
       ],
-      kept: ['The original report, in the archive folder'],
+      confirmLabel: 'Delete',
     });
-    expect(deleteEntryConfirm(entry({ status: 'duplicate', outputs: [] }))).toMatchObject({
-      title: 'Remove report.csv from the list?',
-      items: ['Its row in the input folder list'],
-      confirmLabel: 'Remove',
-    });
+    expect(deleted.kept).toBeUndefined();
+    expect(deleteEntryConfirm(entry({ status: 'duplicate', outputs: [] })).items).toEqual([
+      'Its row in the input folder list',
+      'The original report, from the archive folder',
+    ]);
+    expect(
+      deleteEntryConfirm(
+        entry({ status: 'dismissed', outputs: [], archivedPath: 'failed/report.csv' }),
+      ).items,
+    ).toEqual(['Its row in the input folder list', 'The original report, from the failed folder']);
+    expect(deleteEntryConfirm(entry({ archivedPath: null })).items).not.toContain(
+      expect.stringMatching(/original report/),
+    );
   });
 
   it('converting again lists what it replaces', () => {

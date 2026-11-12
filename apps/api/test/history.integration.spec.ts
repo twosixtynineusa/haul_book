@@ -1,6 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { fixture } from './helpers/wialon-report';
 import { HistoryListSchema, TruckDetailSchema } from '@haulbook/shared';
 import { configureApp } from '../src/app.setup';
 import { CompaniesModule } from '../src/companies/companies.module';
@@ -67,7 +70,51 @@ describeDb('History (Postgres integration)', () => {
 
   beforeEach(async () => {
     await prisma.conversion.deleteMany();
+    await prisma.storedOutput.deleteMany();
     await prisma.company.deleteMany();
+  });
+
+  it('archives exact CSVs and state mileage, recovers older exports idempotently, and serves company PDFs', async () => {
+    await companies.record([{ company: 'ACME TRUCKING LLC', units: ['007'] }]);
+    const csv = fixture('promiles_expected_big_road_oct2026.csv').toString();
+    const record = report('ACME TRUCKING LLC', '007', 'archive.csv');
+    record.trips = [
+      {
+        beginDate: '2026-10-01',
+        endDate: '2026-10-31',
+        beginOdo: null,
+        endOdo: null,
+        distance: 351,
+        states: ['OR', 'WA'],
+      },
+    ];
+    await history.record([record], [{ name: 'archive.csv', csv }]);
+    expect((await history.storedOutput('archive.csv'))?.csv).toBe(csv);
+    const [saved] = (await history.list({ limit: 10 })).entries;
+    expect(saved.trips[0].promiles?.legs.map((l) => l.distance)).toEqual(['121', '230']);
+    const res = await http()
+      .get(`/api/v1/history/companies/${saved.companyId}/report.pdf`)
+      .expect(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    await http()
+      .get(`/api/v1/history/companies/${saved.companyId}/report.pdf?from=2026-02-30`)
+      .expect(400);
+    await http().get('/api/v1/history/companies/missing/report.pdf').expect(404);
+
+    await history.record([{ ...record, outputFile: 'old.csv' }]);
+    const file = path.join(process.env.OUTPUT_PATH!, 'old.csv');
+    await fs.writeFile(file, csv);
+    expect((await history.archiveExisting()).archived).toBe(1);
+    expect((await history.archiveExisting()).archived).toBe(0);
+    await fs.unlink(file);
+    expect((await history.storedOutput('old.csv'))?.csv).toBe(csv);
+    expect(
+      (await history.list({ limit: 10 })).entries.every(
+        (e) => e.trips[0].promiles?.legs.length === 2,
+      ),
+    ).toBe(true);
+    await history.forget(record.sourceFile, ['old.csv']);
+    expect(await history.storedOutput('old.csv')).toBeNull();
   });
 
   afterAll(async () => {

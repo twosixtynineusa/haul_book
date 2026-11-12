@@ -1,28 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Loader2, RotateCcw } from 'lucide-react';
+import { Download, Loader2, RotateCcw, RefreshCw } from 'lucide-react';
 import {
   OdometerReadingSchema,
   type Company,
   type ConversionPreview,
   type ConversionResult,
-  type OutputList,
 } from '@haulbook/shared';
-import {
-  convertFiles,
-  downloadUrl,
-  listCompanies,
-  listOutputs,
-  previewConversion,
-} from '@/lib/api';
+import { convertFiles, downloadUrl, listCompanies, previewConversion } from '@/lib/api';
 import { mergeFiles } from '@/lib/files';
 import { plural } from '@/lib/format';
 import { fileKey, toChoices, withOfferedProMilesUnits, type SourceDraft } from '@/lib/sources';
 import { Dropzone } from './dropzone';
 import { InboxPending, useInbox } from './inbox-panel';
-import { InboxRecent } from './inbox-recent';
-import { OutputFiles } from './output-files';
 import { ReviewTable } from './review-table';
 import { SourcesPanel } from './sources-panel';
 import { Alert, Button, Card, buttonClass } from './ui';
@@ -54,22 +45,6 @@ export function Portal() {
   const [convertError, setConvertError] = useState<string | null>(null);
   const [result, setResult] = useState<ConversionResult | null>(null);
 
-  const [outputs, setOutputs] = useState<OutputList | null>(null);
-  const [outputsError, setOutputsError] = useState<string | null>(null);
-  const [outputsLoading, setOutputsLoading] = useState(false);
-
-  const refreshOutputs = useCallback(async () => {
-    setOutputsLoading(true);
-    try {
-      setOutputs(await listOutputs());
-      setOutputsError(null);
-    } catch (e) {
-      setOutputsError(errorText(e));
-    } finally {
-      setOutputsLoading(false);
-    }
-  }, []);
-
   const refreshCompanies = useCallback(async () => {
     try {
       setCompanies((await listCompanies()).companies);
@@ -79,14 +54,12 @@ export function Portal() {
   }, []);
 
   useEffect(() => {
-    void refreshOutputs();
     void refreshCompanies();
-  }, [refreshOutputs, refreshCompanies]);
+  }, [refreshCompanies]);
 
   const refreshAfterInbox = useCallback(() => {
-    void refreshOutputs();
     void refreshCompanies();
-  }, [refreshOutputs, refreshCompanies]);
+  }, [refreshCompanies]);
   const inbox = useInbox(refreshAfterInbox);
 
   const choices = useMemo(
@@ -163,7 +136,6 @@ export function Portal() {
     setConvertError(null);
     try {
       setResult(await convertFiles(files, choices, odometers));
-      void refreshOutputs();
       void refreshCompanies();
     } catch (e) {
       setConvertError(errorText(e));
@@ -190,6 +162,14 @@ export function Portal() {
   return (
     <>
       <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold">Dashboard</h1>
+          <Button variant="secondary" onClick={inbox.scanNow} disabled={inbox.scanning}>
+            <RefreshCw className={inbox.scanning ? 'size-4 animate-spin' : 'size-4'} aria-hidden />
+            {inbox.scanning ? 'Scanning input folder…' : 'Rescan input folder'}
+          </Button>
+        </div>
+        {inbox.error && <Alert tone="danger">{inbox.error}</Alert>}
         <div className="space-y-6">
           <InboxPending state={inbox} companies={companies} />
           <Card title="Add mileage reports" step={1}>
@@ -357,17 +337,6 @@ export function Portal() {
               )}
             </Card>
           )}
-        </div>
-
-        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-2">
-          <InboxRecent state={inbox} companies={companies} />
-          <OutputFiles
-            outputs={outputs}
-            error={outputsError}
-            loading={outputsLoading}
-            highlight={result?.outputs.map((o) => o.name)}
-            onRefresh={() => void refreshOutputs()}
-          />
         </div>
       </div>
     </>

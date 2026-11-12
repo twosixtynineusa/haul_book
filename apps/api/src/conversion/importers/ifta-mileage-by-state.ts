@@ -28,7 +28,7 @@ import type { Importer } from './types';
  * split), with one leg per state in file order. Miles come with decimals; ProMiles
  * gets whole miles (half up), and their exact sum is kept as the report's own total.
  *
- * Bellfam ELD and HOS 247 both export this format.
+ * Bellfam ELD, HOS 247 and Quick E Logs export this format.
  */
 
 const TITLE = 'ifta mileage by state';
@@ -158,7 +158,7 @@ export function readIftaMileageByState(
   };
 }
 
-function iftaMileageByState(id: 'bellamsp-anir' | 'hos247'): Importer {
+function iftaMileageByState(id: 'bellamsp-anir' | 'hos247' | 'quick-e-logs'): Importer {
   return {
     id,
     detect: (file) => /\.csv$/i.test(file.name) && detectIftaMileageByState(file.bytes),
@@ -166,6 +166,7 @@ function iftaMileageByState(id: 'bellamsp-anir' | 'hos247'): Importer {
   };
 }
 
-/** Two providers, one layout: both detect the same files (the company's source or the user decides). */
+/** Three providers, one layout: the company's source or the user decides. */
 export const bellamspAnirImporter = iftaMileageByState('bellamsp-anir');
 export const hos247Importer = iftaMileageByState('hos247');
+export const quickELogsImporter = iftaMileageByState('quick-e-logs');
