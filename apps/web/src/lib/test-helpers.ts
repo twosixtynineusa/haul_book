@@ -17,6 +17,7 @@ export function company(name: string, units: string[] = [], extra: Partial<Compa
     trucks: units.map((unit) => ({
       id: `${name}:${unit}`,
       unit,
+      promilesUnit: unit,
       vin: null,
       plate: null,
       notes: null,

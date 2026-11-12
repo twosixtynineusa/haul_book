@@ -9,6 +9,7 @@ const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
   company: 'ACME TRUCKING LLC',
   companyId: 'c1',
   unit: '22',
+  promilesUnit: '22',
   truckId: 't1',
   source: 'wialon',
   sourceFile: '22_IFTA_Single_Unit_Mileage_Report.csv',
@@ -43,12 +44,14 @@ describe('history', () => {
         id: 'h2',
         company: 'XYZ',
         unit: '7',
+        promilesUnit: '2017',
         source: 'motive',
         sourceFile: 'trip_reports.csv',
         outputFile: 'XYZ_unit-7_2026-10.csv',
       }),
     ];
     expect(filterHistory(list, 'motive').map((e) => e.id)).toEqual(['h2']);
+    expect(filterHistory(list, '2017').map((e) => e.id)).toEqual(['h2']);
     expect(filterHistory(list, 'acme').map((e) => e.id)).toEqual(['h1']);
     expect(filterHistory(list, 'tx')).toHaveLength(2);
     expect(filterHistory(list, ' ')).toHaveLength(2);

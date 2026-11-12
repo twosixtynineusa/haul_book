@@ -48,7 +48,11 @@ model Unit {
   id              String       @id @default(cuid())
   companyId       String       @map("company_id")
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// The truck # as the source exports it (e.g. Motive's `Volvo 01`): files match trucks by it.
   number          String
+  /// The unit # written to the ProMiles CSV, when it differs from `number` (`Volvo 01` → `2011`);
+  /// null = the same. Unique per company in effect (CompaniesService guards it).
+  promilesUnit    String?      @map("promiles_unit")
   /// The truck's odometer at the end of its latest converted period (begin + miles).
   /// Only real readings are saved, never the placeholder `1`. The next conversion
   /// of a later period uses it as Begin Odo when none is typed.
@@ -113,6 +117,10 @@ model InboxFile {
   formatOptions  String[]    @default([]) @map("format_options")
   /// When needs = company because the unit # is saved under several companies: those.
   companyOptions String[]    @default([]) @map("company_options")
+  /// The ProMiles unit # entered per truck (source unit # → ProMiles unit #).
+  promilesUnits  Json        @default("{}") @map("promiles_units")
+  /// When needs = promilesUnit: the file's trucks not saved yet (or clashing), to confirm.
+  newTrucks      String[]    @default([]) @map("new_trucks")
   /// The user confirmed converting from a format other than the company's approved one.
   confirmSource  Boolean     @default(false) @map("confirm_source")
   /// ProMiles file(s) written to OUTPUT_DIR.
@@ -138,7 +146,9 @@ model Conversion {
   unitId       String?  @map("unit_id")
   unit         Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
   companyName  String   @map("company_name")
+  /// The source's truck #, and the unit # written to ProMiles (null = the same).
   unitNumber   String   @map("unit_number")
+  promilesUnit String?  @map("promiles_unit")
   /// 'portal' or 'inbox'.
   origin       String
   source       String?

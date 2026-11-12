@@ -6,6 +6,7 @@ import {
   CalendarRange,
   CheckCircle2,
   FileSpreadsheet,
+  Hash,
   Loader2,
   X,
   XCircle,
@@ -20,6 +21,7 @@ import {
 } from '@haulbook/shared';
 import { formatBytes } from '@/lib/format';
 import {
+  askedTrucks,
   companyChoiceText,
   companyOptions,
   companyOriginLabel,
@@ -187,6 +189,64 @@ export function SourceSwitch({
   );
 }
 
+/**
+ * The unit # ProMiles gets for each new truck of a file, offered as its own truck # and
+ * editable (`Volvo 01` → `2011`). Converting saves it on the truck, so its later files use
+ * it without asking. Two trucks of a company can't share one.
+ */
+export function ProMilesUnitFields({
+  trucks,
+  values,
+  missing,
+  readOnly,
+  onChange,
+}: {
+  /** Truck #s, as the file has them. */
+  trucks: string[];
+  values: Record<string, string>;
+  /** Mark empty fields (the file is waiting for them). */
+  missing: boolean;
+  readOnly?: boolean;
+  onChange: (truck: string, value: string) => void;
+}) {
+  if (trucks.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-md border border-dashed border-border p-3">
+      <p className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Hash className="size-3.5" aria-hidden />
+        {trucks.length === 1 ? 'New truck' : `${trucks.length} new trucks`}: unit # in ProMiles
+        <span className="font-normal">
+          — what ProMiles calls {trucks.length === 1 ? 'it' : 'each'}. Saved on the truck for its
+          next files.
+        </span>
+      </p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {trucks.map((truck) => {
+          const value = values[truck] ?? '';
+          return (
+            <label key={truck} className="flex items-center gap-2 text-xs">
+              <span className="min-w-0 flex-1 truncate font-medium" title={`Truck ${truck}`}>
+                Truck {truck}
+              </span>
+              <span className="text-muted-foreground" aria-hidden>
+                →
+              </span>
+              <input
+                value={value}
+                readOnly={readOnly}
+                placeholder={truck}
+                onChange={(e) => onChange(truck, e.target.value)}
+                aria-label={`ProMiles unit # for truck ${truck}`}
+                className={cx(fieldClass(missing && !value.trim(), readOnly), 'w-32 shrink-0')}
+              />
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** What a waiting file still needs, in words. */
 export function NeedsText({
   needs,
@@ -199,8 +259,8 @@ export function NeedsText({
   companyOptions: string[];
   unit: string;
 }) {
-  if (!needs.has('format') && !needs.has('company') && !needs.has('unit') && !needs.has('period'))
-    return null;
+  const shown = ['format', 'company', 'unit', 'period', 'promilesUnit'];
+  if (!shown.some((n) => needs.has(n))) return null;
   return (
     <p className="mt-2 text-xs text-warning">
       {needs.has('format') &&
@@ -212,7 +272,9 @@ export function NeedsText({
           ? `${companyChoiceText(unit, owners)} `
           : 'Pick or type the company these miles belong to. ')}
       {needs.has('unit') && 'The truck # isn’t in this file — pick or type it. '}
-      {needs.has('period') && 'Enter the dates this report covers.'}
+      {needs.has('period') && 'Enter the dates this report covers. '}
+      {needs.has('promilesUnit') &&
+        'A truck in it is new: confirm or change the unit # ProMiles knows it by.'}
     </p>
   );
 }
@@ -368,6 +430,18 @@ export function SourcesPanel({
                 />
               </label>
             </div>
+
+            {source && (
+              <ProMilesUnitFields
+                trucks={askedTrucks(source, draft)}
+                values={{ ...source.promilesUnits, ...draft.promilesUnits }}
+                missing={needs.has('promilesUnit')}
+                readOnly={readOnly}
+                onChange={(truck, value) =>
+                  onChange(key, { promilesUnits: { ...draft.promilesUnits, [truck]: value } })
+                }
+              />
+            )}
 
             {source && (source.period || needs.has('period')) && (
               <PeriodFields

@@ -96,7 +96,11 @@ trip. It is internal to Haul Book, not an external contract: `GET /api/v1/histor
 - **v1 (retired 2026-11-06):** a hand-edited comma CSV (`Unit#,Begin Date,End date,State,Toll
   Distance`) made from this report. It is no longer accepted; always upload the raw export.
 
-## 2. ProMiles TRIPSUMMARY2 import — v1  *(write out)*
+## 2. ProMiles TRIPSUMMARY2 import — v2  *(write out)*
+
+> **v2 (2026-11-11):** column A is the truck's **ProMiles unit #**, which can differ from the
+> truck # in the source (Motive's `Volvo 01` → `2011`), and the file name shows both when they
+> differ. Unchanged for every truck whose ProMiles unit # is its own number.
 
 - **Target:** Multi-Fleet FuelTaxOnline (`multifleetfueltax.promilesonline.com`) → Import Data →
   Upload. Template: "Template to import trip summaries" (example file:
@@ -113,7 +117,7 @@ trip. It is internal to Haul Book, not an external contract: `GET /api/v1/histor
 
 | Col | Field | We write |
 |---|---|---|
-| A | Unit# | the unit # (from the source file or its name, or entered in the portal) |
+| A | Unit# | the truck's **ProMiles unit #**: its own when one is saved on the truck (`Unit.promilesUnit`) or entered for this file (`SourceChoice.promilesUnits`), else its truck # (from the source file or its name, or entered in the portal). A truck not saved yet waits (`needs: promilesUnit`) until the user confirms it, in the portal and the input folder alike; two trucks of one company never share one |
 | B / C | Begin / End date | the month row's Time in / Time out (or the `Total` row's), `M/D/YYYY` |
 | D | Begin Odo | the odometer entered in the portal for the truck's first trip, carried forward (+ each trip's miles) to later months; else, for a trip whose source records the odometer (Motive), its own start reading (the next trip carries on from its end reading); else, for the truck's first trip, its saved end odometer from its last conversion (only when this trip starts after that period ended), then carried forward; else **`1`** |
 | E | D or O | `D` (distance mode) |
@@ -131,6 +135,9 @@ trip. It is internal to Haul Book, not an external contract: `GET /api/v1/histor
 - **Output file name:** company name + unit # + period:
   `<Company>_unit-<N>_<YYYY-MM>.csv`, e.g. `ACME-TRUCKING-LLC_unit-22_2026-10.csv`.
   Several months: `…_2026-10_to_2026-12.csv`; several trucks: `units-22-25-30` or `N-units`.
+  The unit #s are the ProMiles ones; when any differs from the truck # in the source, those
+  follow: `ACME-TRUCKING-LLC_unit-2011_from-Volvo-01_2026-10.csv`,
+  `…_units-2011-22_from-Volvo-01-22_…` (not for `N-units`).
   Characters outside `A–Z a–z 0–9` become `-`;
   never overwritten — repeats get `_2`, `_3`, ….
 

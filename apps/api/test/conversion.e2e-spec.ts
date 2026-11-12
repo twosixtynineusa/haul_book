@@ -51,18 +51,35 @@ class FakeCompanies {
       ]),
     );
   }
+  /** Truck # → ProMiles unit # saved per company (by companyKey). */
+  promiles = new Map<string, Map<string, string | null>>();
+  async trucksOf(names: string[]) {
+    return new Map(
+      names.map((n) => {
+        const key = companyKey(n);
+        const units = [...(this.saved.get(key)?.units ?? [])];
+        const own = this.promiles.get(key);
+        return [key, units.map((unit) => ({ unit, promilesUnit: own?.get(unit) ?? null }))];
+      }),
+    );
+  }
   odometers = new Map<string, SavedReading>();
   async savedOdometers() {
     return this.odometers;
   }
   async record(entries: RecordEntry[]) {
-    for (const { company, units, odometers = [], source } of entries) {
+    for (const { company, units, promilesUnits = {}, odometers = [], source } of entries) {
       const c = this.saved.get(companyKey(company)) ?? {
         name: company,
         units: new Set<string>(),
         source: null,
       };
       units.forEach((u) => c.units.add(u));
+      const own = this.promiles.get(companyKey(company)) ?? new Map<string, string | null>();
+      for (const [unit, promiles] of Object.entries(promilesUnits)) {
+        own.set(unit, promiles === unit ? null : promiles);
+      }
+      this.promiles.set(companyKey(company), own);
       c.source = source ?? c.source;
       this.saved.set(companyKey(company), c);
       for (const { unit, ...reading } of odometers) {
@@ -113,13 +130,24 @@ describe('Conversions (e2e)', () => {
   });
 
   const server = () => app.getHttpServer();
+  /**
+   * Every truck these tests convert, confirmed as its own ProMiles unit # (as the portal does
+   * by default), so the cases below test what they're about. The waiting is tested on its own.
+   */
+  const SAME = Object.fromEntries(
+    ['22', '25', '7', '99', '12', 'Volvo 9', 'Volvo 7', '31', '0412', '1022'].map((u) => [u, u]),
+  );
   const post = (
     url: string,
     sources: SourceChoice[] = [],
     files: [Buffer, string][] = [[RAW.bytes, RAW_NAME]],
     odometers?: Record<string, string>,
+    confirm = true,
   ) => {
-    const req = request(server()).post(url).field('sources', JSON.stringify(sources));
+    const choices = confirm
+      ? files.map((_, i) => ({ promilesUnits: SAME, ...sources[i] }))
+      : sources;
+    const req = request(server()).post(url).field('sources', JSON.stringify(choices));
     if (odometers) req.field('odometers', JSON.stringify(odometers));
     for (const [bytes, name] of files) req.attach('files', bytes, name);
     return req;
@@ -472,6 +500,41 @@ describe('Conversions (e2e)', () => {
       'XYZ-FREIGHT-LLC_unit-1022_2026-10.csv',
       'ACME-TRUCKING-LLC_unit-25_2026-10.csv',
     ]);
+  });
+
+  it('asks for a new truck’s ProMiles unit #, then writes it and names the file by both', async () => {
+    const company = 'NEW HAUL LLC';
+    const files: [Buffer, string][] = [[RAW.bytes, RAW_NAME]];
+    const res = await post('/api/v1/conversions/preview', [{ company }], files, undefined, false);
+    const preview = ConversionPreviewSchema.parse(res.body);
+    expect(preview.ready).toBe(false);
+    expect(preview.files[0]).toMatchObject({
+      unit: '22',
+      needs: ['promilesUnit'],
+      newTrucks: ['22'],
+      promilesUnits: { '22': '22' }, // offered as its own number
+    });
+    await post('/api/v1/conversions', [{ company }], files, undefined, false).expect(400);
+
+    const saved = await post(
+      '/api/v1/conversions',
+      [{ company, promilesUnits: { '22': '9022' } }],
+      files,
+      undefined,
+      false,
+    ).expect(201);
+    const result = ConversionResultSchema.parse(saved.body);
+    expect(result.outputs.map((o) => o.name)).toEqual([
+      'NEW-HAUL-LLC_unit-9022_from-22_2026-10.csv',
+    ]);
+    expect(result.trips[0]).toMatchObject({ unit: '22', promilesUnit: '9022' });
+    const csv = fs.readFileSync(path.join(OUTPUT, result.outputs[0].name), 'utf8');
+    expect(csv.split('\n')[2].split(',')[0]).toBe('9022');
+    expect(history.records.at(-1)).toMatchObject({ unit: '22', promilesUnit: '9022' });
+
+    // Saved on the truck: the next file needs nothing more.
+    const again = await post('/api/v1/conversions/preview', [{ company }], files, undefined, false);
+    expect(again.body.files[0]).toMatchObject({ needs: [], promilesUnits: { '22': '9022' } });
   });
 
   it('reports cross-file problems in the preview instead of failing', async () => {

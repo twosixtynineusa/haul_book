@@ -35,6 +35,7 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const EDIT_FIELDS: [keyof TruckDraft, string, object?][] = [
   ['unit', 'Truck #'],
+  ['promilesUnit', 'ProMiles unit #', { placeholder: 'Same as the truck #' }],
   ['vin', 'VIN', { maxLength: 17 }],
   ['plate', 'Plate'],
   ['odometer', 'Odometer', { inputMode: 'decimal' }],
@@ -236,6 +237,12 @@ export function TruckPage({ id }: { id: string }) {
             </form>
           ) : (
             <dl className="grid gap-4 sm:grid-cols-3">
+              <Fact label="ProMiles unit #">
+                {truck.promilesUnit}
+                {truck.promilesUnit === truck.unit && (
+                  <span className="text-xs text-muted-foreground"> · same as the truck #</span>
+                )}
+              </Fact>
               <Fact label="VIN">
                 <span className="font-mono text-xs">{truck.vin ?? '—'}</span>
               </Fact>

@@ -23,6 +23,34 @@ export interface SourceDraft {
   period?: { begin: string; end: string };
   /** The user confirmed converting from a source other than the company's approved one. */
   confirmSource?: boolean;
+  /** The unit # ProMiles gets per new truck (truck # → ProMiles unit #). */
+  promilesUnits?: Record<string, string>;
+}
+
+/**
+ * The trucks of a file whose ProMiles unit # the portal asks for: the new ones the API
+ * reports, and those it already has an entry for (they stop being "new" once sent).
+ */
+export function askedTrucks(source: SourceFile, draft: SourceDraft): string[] {
+  const entered = Object.keys(draft.promilesUnits ?? {});
+  const trucks = source.units.length > 0 ? source.units : source.unit ? [source.unit] : [];
+  return trucks.filter((t) => source.newTrucks.includes(t) || entered.includes(t));
+}
+
+/**
+ * New trucks the API reports with nothing entered yet, offered as their own truck # (the
+ * user sees the field and can change it before converting). Undefined when there's none.
+ */
+export function offeredProMilesUnits(
+  source: SourceFile,
+  draft: SourceDraft,
+): Record<string, string> | undefined {
+  const missing = source.newTrucks.filter((t) => draft.promilesUnits?.[t] === undefined);
+  if (missing.length === 0) return undefined;
+  return {
+    ...draft.promilesUnits,
+    ...Object.fromEntries(missing.map((t) => [t, source.promilesUnits[t] ?? t])),
+  };
 }
 
 /** Stable identity for a dropped file (same rule as the duplicate check). */
@@ -30,15 +58,41 @@ export function fileKey(file: { name: string; size: number }): string {
   return `${file.name}:${file.size}`;
 }
 
+/**
+ * The drafts with every new truck's ProMiles unit # offered (offeredProMilesUnits); the
+ * same object when nothing was missing, so a re-check doesn't loop.
+ */
+export function withOfferedProMilesUnits(
+  drafts: Record<string, SourceDraft>,
+  files: { name: string; size: number }[],
+  sources: SourceFile[],
+): Record<string, SourceDraft> {
+  let next = drafts;
+  files.forEach((file, i) => {
+    const source = sources[i];
+    if (source?.name !== file.name) return;
+    const key = fileKey(file);
+    const offered = offeredProMilesUnits(source, drafts[key] ?? {});
+    if (offered) next = { ...next, [key]: { ...drafts[key], promilesUnits: offered } };
+  });
+  return next;
+}
+
 /** The `sources` field for the API: only what the user actually set, trimmed. */
 export function toChoices(drafts: SourceDraft[]): SourceChoice[] {
-  return drafts.map(({ format, company, unit, period, confirmSource }) => ({
-    ...(format ? { format } : {}),
-    ...(company?.trim() ? { company: company.trim() } : {}),
-    ...(unit?.trim() ? { unit: unit.trim() } : {}),
-    ...(period?.begin && period.end ? { period } : {}),
-    ...(confirmSource ? { confirmSource } : {}),
-  }));
+  return drafts.map(({ format, company, unit, period, confirmSource, promilesUnits }) => {
+    const entered = Object.entries(promilesUnits ?? {})
+      .map(([truck, value]) => [truck, value.trim()] as const)
+      .filter(([, value]) => value);
+    return {
+      ...(format ? { format } : {}),
+      ...(company?.trim() ? { company: company.trim() } : {}),
+      ...(unit?.trim() ? { unit: unit.trim() } : {}),
+      ...(period?.begin && period.end ? { period } : {}),
+      ...(confirmSource ? { confirmSource } : {}),
+      ...(entered.length > 0 ? { promilesUnits: Object.fromEntries(entered) } : {}),
+    };
+  });
 }
 
 /** The value a field shows: the user's text if they touched it, else what the API found. */

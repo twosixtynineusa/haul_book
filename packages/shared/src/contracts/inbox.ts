@@ -51,6 +51,10 @@ export const InboxEntrySchema = z.object({
   unit: z.string().nullable(),
   /** When the file holds several trucks: their unit #s (`unit` is then null). Else empty. */
   units: z.array(z.string()),
+  /** The ProMiles unit # entered per truck (truck # → ProMiles unit #). */
+  promilesUnits: z.record(z.string(), z.string()),
+  /** When `needs` has `promilesUnit`: the trucks whose ProMiles unit # to confirm. */
+  newTrucks: z.array(z.string()),
   /** For a file with no dates of its own: the period entered (else null), and a likely one. */
   period: PeriodSchema.nullable(),
   suggestedPeriod: PeriodSchema.nullable(),

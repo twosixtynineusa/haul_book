@@ -83,7 +83,17 @@ function entered(record: InboxFile, choice: SourceChoice) {
       ? { periodBegin: dateOf(choice.period.begin), periodEnd: dateOf(choice.period.end) }
       : {}),
     confirmSource: choice.confirmSource ?? record.confirmSource,
+    promilesUnits: { ...promilesUnitsOf(record), ...choice.promilesUnits },
   };
+}
+
+/** The ProMiles unit #s entered for a file's trucks (a JSON column). */
+function promilesUnitsOf(record: InboxFile): Record<string, string> {
+  const value = record.promilesUnits;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
 }
 
 function withSuffix(rel: string, n: number): string {
@@ -262,7 +272,12 @@ export class InboxService implements OnModuleInit {
       await this.ensureDir(path.posix.dirname(target));
       await fsp.rename(this.abs(archived), this.abs(target));
     } catch (e) {
-      await this.prisma.inboxFile.update({ where: { id }, data: record });
+      // Put the row back as it was.
+      const { id: _id, createdAt: _created, updatedAt: _updated, ...before } = record;
+      await this.prisma.inboxFile.update({
+        where: { id },
+        data: { ...before, promilesUnits: promilesUnitsOf(record) },
+      });
       throw e;
     }
     await this.conversion.forget(record.name, record.outputs);
@@ -356,6 +371,9 @@ export class InboxService implements OnModuleInit {
         ? { period: { begin: isoDay(record.periodBegin), end: isoDay(record.periodEnd) } }
         : {}),
       ...(record.confirmSource ? { confirmSource: true } : {}),
+      ...(Object.keys(promilesUnitsOf(record)).length > 0
+        ? { promilesUnits: promilesUnitsOf(record) }
+        : {}),
     };
     // The company sub-folder counts after the file's own company, and before the unit #'s.
     // Converting again for some of its trucks: the company running the others stands in.
@@ -373,6 +391,7 @@ export class InboxService implements OnModuleInit {
       companyOptions: source.companyOptions,
       unit: source.unit,
       units: source.units,
+      newTrucks: source.newTrucks,
       sha256,
     };
     if (!preview.ready) {
@@ -579,6 +598,8 @@ export function toEntry(r: InboxFile): InboxEntry {
     companyOptions: r.companyOptions,
     unit: r.unit,
     units: r.units,
+    promilesUnits: promilesUnitsOf(r),
+    newTrucks: r.newTrucks,
     period,
     suggestedPeriod:
       format.success && (period || needs.includes('period'))

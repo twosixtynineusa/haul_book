@@ -12,6 +12,8 @@ import {
   toChoices,
   unitOptions,
   unitsFor,
+  withOfferedProMilesUnits,
+  askedTrucks,
 } from './sources';
 import { company } from './test-helpers';
 
@@ -54,6 +56,8 @@ describe('sources', () => {
       period: null,
       suggestedPeriod: null,
       formatOptions: [],
+      promilesUnits: {},
+      newTrucks: [],
       needs: [],
       knownSource: null,
       error: null,
@@ -63,6 +67,24 @@ describe('sources', () => {
     expect(needsAttention({ ...base, error: 'nope' })).toBe(true);
     expect(needsAttention(undefined)).toBe(false);
     expect(fileKey({ name: 'a.csv', size: 3 })).toBe('a.csv:3');
+
+    // New trucks: their own truck # is offered once, then what the user typed is kept.
+    const motive = {
+      ...base,
+      units: ['Volvo 7', '31'],
+      newTrucks: ['Volvo 7', '31'],
+      promilesUnits: { 'Volvo 7': 'Volvo 7', '31': '31' },
+      needs: ['promilesUnit' as const],
+    };
+    const file = { name: 'a.csv', size: 3 };
+    const offered = withOfferedProMilesUnits({}, [file], [motive]);
+    expect(offered['a.csv:3'].promilesUnits).toEqual({ 'Volvo 7': 'Volvo 7', '31': '31' });
+    expect(withOfferedProMilesUnits(offered, [file], [motive])).toBe(offered);
+    const typed = { promilesUnits: { 'Volvo 7': '2017', '31': ' ' } };
+    expect(toChoices([typed])).toEqual([{ promilesUnits: { 'Volvo 7': '2017' } }]);
+    // Sent, they're no longer "new" to the API but still asked here.
+    expect(askedTrucks({ ...motive, newTrucks: [] }, typed)).toEqual(['Volvo 7', '31']);
+    expect(askedTrucks({ ...motive, newTrucks: [] }, {})).toEqual([]);
   });
 });
 

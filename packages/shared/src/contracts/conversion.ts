@@ -42,7 +42,9 @@ export const DistanceUnitSchema = z.enum(['M', 'K']);
 /** One ProMiles trip = one truck (company + unit) × one month of a source report. */
 export const TripSummarySchema = z.object({
   company: z.string(),
+  /** The truck # from the source, and the unit # written to ProMiles (often the same). */
   unit: z.string(),
+  promilesUnit: z.string(),
   /** The uploaded report it came from. */
   sourceFile: z.string(),
   /** Trip dates as written to the file (M/D/YYYY). */

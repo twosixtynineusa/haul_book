@@ -33,7 +33,10 @@ const text = (max: number) =>
 
 export const TruckSchema = z.object({
   id: z.string(),
+  /** The truck # as the source exports it: files are matched to the truck by it. */
   unit: z.string(),
+  /** The unit # written to ProMiles: its own when set, else `unit`. */
+  promilesUnit: z.string(),
   vin: z.string().nullable(),
   plate: z.string().nullable(),
   notes: z.string().nullable(),
@@ -107,6 +110,11 @@ export const CompanyMergeSchema = z.object({ into: z.string().min(1) });
 export type CompanyMerge = z.infer<typeof CompanyMergeSchema>;
 
 const truckDetails = {
+  /** The unit # ProMiles gets; blank or the truck # itself = the same as the truck #. */
+  promilesUnit: z
+    .union([UnitNumberSchema, z.literal(""), z.null()])
+    .transform((s) => s || null)
+    .optional(),
   vin: text(17).optional(),
   plate: text(20).optional(),
   notes: text(2000).optional(),

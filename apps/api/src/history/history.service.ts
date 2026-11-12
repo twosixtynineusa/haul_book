@@ -20,6 +20,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface HistoryRecord {
   company: string;
   unit: string;
+  /** The unit # written to ProMiles. */
+  promilesUnit: string;
   origin: HistoryOrigin;
   source: SourceFormatId;
   sourceFile: string;
@@ -45,6 +47,7 @@ function toEntry(row: ConversionRow): HistoryEntry {
     company: row.companyName,
     companyId: row.companyId,
     unit: row.unitNumber,
+    promilesUnit: row.promilesUnit ?? row.unitNumber,
     truckId: row.unitId,
     source: source.success ? source.data : null,
     sourceFile: row.sourceFile,
@@ -87,6 +90,7 @@ export class HistoryService {
           unitId: unit?.id ?? null,
           companyName: company?.name ?? r.company,
           unitNumber: r.unit,
+          promilesUnit: r.promilesUnit === r.unit ? null : r.promilesUnit,
           origin: r.origin,
           source: r.source,
           sourceFile: r.sourceFile,

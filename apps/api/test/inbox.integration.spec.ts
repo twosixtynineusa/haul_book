@@ -4,7 +4,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { InboxListSchema } from '@haulbook/shared';
+import { InboxListSchema, type InboxEntry } from '@haulbook/shared';
 import { configureApp } from '../src/app.setup';
 import { CompaniesService } from '../src/companies/companies.service';
 import { InboxHttpModule } from '../src/inbox/inbox.controller';
@@ -49,6 +49,20 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     return inbox.scan();
   };
   const server = () => app.getHttpServer();
+  /** Confirms a waiting file's new trucks as their own ProMiles unit #s (plus `more`). */
+  const confirm = async (id: string, more: object = {}) => {
+    const { newTrucks } = await inbox
+      .list()
+      .then(({ pending }) => pending.find((p) => p.id === id)!);
+    const res = await request(server())
+      .patch(`/api/v1/inbox/${id}`)
+      .send({ promilesUnits: Object.fromEntries(newTrucks.map((u) => [u, u])), ...more })
+      .expect(200);
+    expect(res.body).toMatchObject({ status: 'converted' });
+    return res.body as InboxEntry;
+  };
+  /** Saves ACME TRUCKING LLC's trucks, so files for them convert without asking. */
+  const known = (units: string[], company = COMPANY) => companies.record([{ company, units }]);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [PrismaModule, InboxHttpModule] })
@@ -81,7 +95,16 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     drop(`${COMPANY}/${RAW_NAME}`);
 
     expect(await inbox.scan()).toMatchObject({ found: 1, converted: 0 }); // first sighting
-    expect(await inbox.scan()).toMatchObject({ converted: 1 });
+    // A truck not saved yet waits for its ProMiles unit # to be confirmed.
+    expect(await inbox.scan()).toMatchObject({ needsInput: 1, converted: 0 });
+    const [held] = (await inbox.list()).pending;
+    expect(held).toMatchObject({
+      company: COMPANY,
+      unit: '22',
+      needs: ['promilesUnit'],
+      newTrucks: ['22'],
+    });
+    await confirm(held.id);
 
     const output = 'ACME-TRUCKING-LLC_unit-22_2026-10.csv';
     expect(fs.readFileSync(path.join(OUTPUT, output), 'utf8')).toBe(EXPECTED);
@@ -191,14 +214,13 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
       unit: '7',
       format: null,
       formatOptions: ['bellamsp-anir', 'hos247'],
-      needs: ['format'],
+      // Truck 7 is new as well: both are asked at once.
+      needs: ['format', 'promilesUnit'],
+      newTrucks: ['7'],
     });
 
-    const res = await request(server())
-      .patch(`/api/v1/inbox/${held.id}`)
-      .send({ format: 'hos247' })
-      .expect(200);
-    expect(res.body).toMatchObject({ status: 'converted', format: 'hos247', formatOptions: [] });
+    const res = await confirm(held.id, { format: 'hos247' });
+    expect(res).toMatchObject({ status: 'converted', format: 'hos247', formatOptions: [] });
 
     // The company is HOS 247 now: its next file in this layout converts without asking.
     drop(
@@ -218,6 +240,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   });
 
   it('settles a file whose mtime has nanosecond precision', async () => {
+    await known(['22']);
     drop(`${COMPANY}/${RAW_NAME}`);
     const seconds = 1794031083.0530722; // as stat'd on a host ext4 bind mount
     fs.utimesSync(path.join(INPUT, COMPANY, RAW_NAME), seconds, seconds);
@@ -247,11 +270,14 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     // A later scan leaves it alone — it's waiting for the user.
     expect(await inbox.scan()).toMatchObject({ needsInput: 0, converted: 0 });
 
-    const res = await request(server())
+    // Its company in: truck 22 is new there, so it asks for that too.
+    const named = await request(server())
       .patch(`/api/v1/inbox/${pending[0].id}`)
       .send({ company: COMPANY })
       .expect(200);
-    expect(res.body).toMatchObject({ status: 'converted', company: COMPANY });
+    expect(named.body).toMatchObject({ status: 'needs_input', needs: ['promilesUnit'] });
+    const res = await confirm(pending[0].id);
+    expect(res).toMatchObject({ status: 'converted', company: COMPANY });
     expect(fs.existsSync(path.join(INPUT, 'archive', TODAY, RAW_NAME))).toBe(true);
     expect(fs.readdirSync(OUTPUT)).toEqual(['ACME-TRUCKING-LLC_unit-22_2026-10.csv']);
   });
@@ -281,6 +307,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
 
   it('waits for the period of a Motive distance summary, offering the likely month', async () => {
     const name = '1794000000-distance_summary_by_vehicle.csv';
+    await known(['12', 'Volvo 9']);
     drop(`${COMPANY}/${name}`, fixture(name));
     expect(await settle()).toMatchObject({ needsInput: 1 });
     const [held] = (await inbox.list()).pending;
@@ -347,12 +374,13 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
 
     const done = await request(server())
       .patch(`/api/v1/inbox/${october.id}`)
-      .send({ company: COMPANY, unit: '22' })
+      .send({ company: COMPANY, unit: '22', promilesUnits: { '22': '22' } })
       .expect(200);
     expect(done.body).toMatchObject({ status: 'converted', unit: '22' });
   });
 
   it('archives a re-dropped identical file as a duplicate instead of converting it twice', async () => {
+    await known(['22']);
     drop(`${COMPANY}/${RAW_NAME}`);
     await settle();
     drop(`${COMPANY}/${RAW_NAME}`); // same bytes again
@@ -365,13 +393,16 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   });
 
   it('converts a re-dropped file again once its company was deleted', async () => {
+    await known(['22']);
     drop(`${COMPANY}/${RAW_NAME}`);
     await settle();
     const [saved] = (await companies.list()).companies;
     await companies.remove(saved.id);
 
+    // Not a duplicate: it waits, as truck 22 is new again.
     drop(`${COMPANY}/${RAW_NAME}`);
-    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect(await settle()).toMatchObject({ needsInput: 1, duplicates: 0 });
+    await confirm((await inbox.list()).pending[0].id);
     expect(fs.readdirSync(OUTPUT).sort()).toEqual([
       'ACME-TRUCKING-LLC_unit-22_2026-10.csv',
       'ACME-TRUCKING-LLC_unit-22_2026-10_2.csv',
@@ -382,6 +413,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
   });
 
   it('converts a re-dropped file again once its truck was deleted, not after a merge or move', async () => {
+    await known(['22']);
     drop(`${COMPANY}/${RAW_NAME}`);
     await settle();
     // Merged into another spelling: the truck (and its history) live on there.
@@ -399,7 +431,8 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
 
     await companies.removeTruck(other2.id, moved.truckId);
     drop(`${COMPANY}/${RAW_NAME}`);
-    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect(await settle()).toMatchObject({ needsInput: 1, duplicates: 0 });
+    await confirm((await inbox.list()).pending[0].id);
     expect(fs.readdirSync(OUTPUT)).toHaveLength(2);
   });
 
@@ -411,9 +444,13 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     const [saved] = (await companies.list()).companies;
     await companies.removeTruck(saved.id, saved.trucks.find((t) => t.unit === '31')!.id);
 
-    // Nothing else says whose truck 31 is: the company still running Volvo 7 stands in.
+    // Nothing else says whose truck 31 is: the company still running Volvo 7 stands in. Only
+    // 31 converts, and being new again, it's the one truck asked about.
     drop(name, fixture(name));
-    expect(await settle()).toMatchObject({ converted: 1, duplicates: 0 });
+    expect(await settle()).toMatchObject({ needsInput: 1, duplicates: 0 });
+    const [held] = (await inbox.list()).pending;
+    expect(held).toMatchObject({ company: COMPANY, needs: ['promilesUnit'], newTrucks: ['31'] });
+    await confirm(held.id);
     expect((await inbox.list()).recent[0]).toMatchObject({
       status: 'converted',
       company: COMPANY,
@@ -427,6 +464,73 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     expect(await settle()).toMatchObject({ converted: 0, duplicates: 1 });
   });
 
+  describe('ProMiles unit #s', () => {
+    const MOTIVE = '1794000000-trip_reports_detail_by_vehicle.csv';
+
+    it('writes a new truck under the ProMiles unit # confirmed for it, then remembers it', async () => {
+      drop(`${COMPANY}/${MOTIVE}`, fixture(MOTIVE));
+      expect(await settle()).toMatchObject({ needsInput: 1, converted: 0 });
+      const [held] = (await inbox.list()).pending;
+      expect(held).toMatchObject({ needs: ['promilesUnit'], newTrucks: ['Volvo 7', '31'] });
+
+      const res = await request(server())
+        .patch(`/api/v1/inbox/${held.id}`)
+        .send({ promilesUnits: { 'Volvo 7': '2017', '31': '31' } })
+        .expect(200);
+      const output = 'ACME-TRUCKING-LLC_units-2017-31_from-Volvo-7-31_2026-10.csv';
+      expect(res.body).toMatchObject({ status: 'converted', outputs: [output] });
+      const rows = fs.readFileSync(path.join(OUTPUT, output), 'utf8').split('\n');
+      const units = rows
+        .slice(2)
+        .map((r) => r.split(',')[0])
+        .filter(Boolean);
+      expect(units).toEqual(expect.arrayContaining(['2017', '31']));
+      expect(units).not.toContain('Volvo 7');
+
+      // Saved on the trucks, and in the history next to the truck # from the file.
+      const [saved] = (await companies.list()).companies;
+      expect(saved.trucks.map((t) => [t.unit, t.promilesUnit])).toEqual([
+        ['31', '31'],
+        ['Volvo 7', '2017'],
+      ]);
+      const logged = await prisma.conversion.findMany({ orderBy: { unitNumber: 'asc' } });
+      expect(logged.map((r) => [r.unitNumber, r.promilesUnit])).toEqual([
+        ['31', null],
+        ['Volvo 7', '2017'],
+      ]);
+
+      // Its next file converts on its own, under the saved numbers.
+      drop(
+        `${COMPANY}/${MOTIVE.replace('1794000000', '1794000001')}`,
+        Buffer.concat([fixture(MOTIVE), Buffer.from('\n')]),
+      );
+      expect(await settle()).toMatchObject({ converted: 1, needsInput: 0 });
+      expect((await inbox.list()).recent[0].outputs).toEqual([output.replace('.csv', '_2.csv')]);
+    });
+
+    it('refuses a ProMiles unit # another truck of the company already sends', async () => {
+      await known(['22']);
+      drop(`${COMPANY}/${MOTIVE}`, fixture(MOTIVE));
+      await settle();
+      const [held] = (await inbox.list()).pending;
+
+      const clash = await request(server())
+        .patch(`/api/v1/inbox/${held.id}`)
+        .send({ promilesUnits: { 'Volvo 7': '22', '31': '31' } })
+        .expect(200);
+      expect(clash.body).toMatchObject({ status: 'failed', newTrucks: ['Volvo 7'] });
+      expect(clash.body.error).toMatch(/22 is already truck 22's/);
+      expect(fs.readdirSync(OUTPUT)).toEqual([]);
+
+      // Another number: it converts (the earlier entry for 31 is kept).
+      const res = await request(server())
+        .patch(`/api/v1/inbox/${held.id}`)
+        .send({ promilesUnits: { 'Volvo 7': '2017' } })
+        .expect(200);
+      expect(res.body).toMatchObject({ status: 'converted' });
+    });
+  });
+
   describe('undoing a processed file', () => {
     const OUT = 'ACME-TRUCKING-LLC_unit-22_2026-10.csv';
     const ARCHIVED = `archive/${TODAY}/${COMPANY}/${RAW_NAME}`;
@@ -434,6 +538,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     const reprocess = (id: string) => request(server()).post(`/api/v1/inbox/${id}/reprocess`);
 
     it('deletes a row with its ProMiles file and history, keeping the archived source', async () => {
+      await known(['22']);
       drop(`${COMPANY}/${RAW_NAME}`);
       await settle();
       drop(`${COMPANY}/${RAW_NAME}`);
@@ -471,11 +576,14 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
     });
 
     it('converts a file again in place with a corrected company, replacing what it produced', async () => {
+      await known(['22']);
       drop(`${COMPANY}/${RAW_NAME}`);
       await settle();
       const [row] = (await inbox.list()).recent;
 
-      const res = await reprocess(row.id).send({ company: 'X Y Z FREIGHT LLC' }).expect(200);
+      const res = await reprocess(row.id)
+        .send({ company: 'X Y Z FREIGHT LLC', promilesUnits: { '22': '22' } })
+        .expect(200);
       const output = 'X-Y-Z-FREIGHT-LLC_unit-22_2026-10.csv';
       expect(res.body).toMatchObject({
         id: row.id,
@@ -543,7 +651,7 @@ describeDb('Inbox — watched input folder (Postgres integration)', () => {
 
       const done = await request(server())
         .patch(`/api/v1/inbox/${waiting.id}`)
-        .send({ company: COMPANY })
+        .send({ company: COMPANY, promilesUnits: { '22': '22' } })
         .expect(200);
       fs.rmSync(path.join(INPUT, done.body.archivedPath));
       const gone = await reprocess(waiting.id).send({ company: 'X Y Z FREIGHT LLC' }).expect(400);

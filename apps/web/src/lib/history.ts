@@ -23,6 +23,7 @@ export function filterHistory(entries: HistoryEntry[], query: string): HistoryEn
     (e) =>
       has(e.company) ||
       has(e.unit) ||
+      has(e.promilesUnit) ||
       has(e.source && sourceName(e.source)) ||
       has(e.sourceFile) ||
       has(e.outputFile) ||

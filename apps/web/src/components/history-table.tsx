@@ -99,10 +99,18 @@ export function HistoryTable({
                       ) : (
                         <span title="This truck was deleted">{e.unit}</span>
                       )}
+                      {e.promilesUnit !== e.unit && (
+                        <p className="text-xs font-normal text-muted-foreground">
+                          ProMiles: {e.promilesUnit}
+                        </p>
+                      )}
                     </td>
                   )}
                   <td className="py-2.5 pr-3 text-xs">
                     {e.source ? sourceName(e.source) : '—'}
+                    {!showTruck && e.promilesUnit !== e.unit && (
+                      <p className="text-muted-foreground">as ProMiles unit # {e.promilesUnit}</p>
+                    )}
                     <p
                       className="max-w-[12rem] truncate text-muted-foreground"
                       title={e.sourceFile}

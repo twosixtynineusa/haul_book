@@ -29,7 +29,14 @@ import {
   type DetailField,
   type TruckDraft,
 } from '@/lib/companies';
+import {
+  deleteCompanyConfirm,
+  deleteTruckConfirm,
+  mergeCompanyConfirm,
+  replaceSourceConfirm,
+} from '@/lib/confirm';
 import { formatDateTime } from '@/lib/format';
+import { useConfirm } from './confirm-dialog';
 import { MoveTruck } from './move-truck';
 import { fieldClass } from './sources-panel';
 import { Button, buttonClass, cx } from './ui';
@@ -183,14 +190,12 @@ function DetailsForm({ company, onSaved }: { company: Company; onSaved: (c: Comp
 
 function SourceEditor({ company, onSaved }: { company: Company; onSaved: (c: Company) => void }) {
   const { busy, error, run } = useAction();
+  const confirm = useConfirm();
   const save = async (source: SourceFormatId | null) => {
     if (
       source &&
       company.source &&
-      !window.confirm(
-        `Replace ${sourceName(company.source)} with ${sourceName(source)} as ${company.name}'s ` +
-          `approved source? Its ${sourceName(company.source)} files will then wait for confirmation.`,
-      )
+      !(await confirm(replaceSourceConfirm(company.name, company.source, source)))
     )
       return;
     const saved = await run(() => updateCompany(company.id, { source }));
@@ -245,10 +250,13 @@ function TrucksTable({
   return (
     <Section title={`Trucks (${company.trucks.length})`}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[820px] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-muted-foreground">
             <tr className="border-b border-border">
               <th className="py-2 pr-3 font-medium">Truck #</th>
+              <th className="py-2 pr-3 font-medium" title="The unit # written to ProMiles">
+                ProMiles unit #
+              </th>
               <th className="py-2 pr-3 font-medium">VIN</th>
               <th className="py-2 pr-3 font-medium">Plate</th>
               <th className="py-2 pr-3 font-medium">Odometer</th>
@@ -275,6 +283,7 @@ function TrucksTable({
                 <TruckRow
                   key={t.id}
                   companyId={company.id}
+                  companyName={company.name}
                   truck={t}
                   others={others}
                   onEdit={() => setEditing(t.id)}
@@ -294,7 +303,7 @@ function TrucksTable({
             )}
             {company.trucks.length === 0 && !adding && (
               <tr>
-                <td colSpan={7} className="py-4 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="py-4 text-center text-sm text-muted-foreground">
                   No trucks yet.
                 </td>
               </tr>
@@ -314,6 +323,7 @@ function TrucksTable({
 
 function TruckRow({
   companyId,
+  companyName,
   truck,
   others,
   onEdit,
@@ -321,6 +331,7 @@ function TruckRow({
   onMoved,
 }: {
   companyId: string;
+  companyName: string;
   truck: Truck;
   others: Company[];
   onEdit: () => void;
@@ -329,8 +340,9 @@ function TruckRow({
 }) {
   const [moving, setMoving] = useState(false);
   const { busy, error, run } = useAction();
+  const confirm = useConfirm();
   const remove = async () => {
-    if (!window.confirm(`Delete truck ${truck.unit}? Its saved odometer is deleted too.`)) return;
+    if (!(await confirm(deleteTruckConfirm(companyName, truck)))) return;
     const saved = await run(() => deleteTruck(companyId, truck.id));
     if (saved) onSaved(saved);
   };
@@ -345,6 +357,15 @@ function TruckRow({
           >
             {truck.unit}
           </Link>
+        </td>
+        <td className="whitespace-nowrap py-2.5 pr-3">
+          {truck.promilesUnit === truck.unit ? (
+            <span className="text-muted-foreground" title="The same as the truck #">
+              {truck.promilesUnit}
+            </span>
+          ) : (
+            <span className="font-medium">{truck.promilesUnit}</span>
+          )}
         </td>
         <td className="py-2.5 pr-3 font-mono text-xs">{truck.vin ?? '—'}</td>
         <td className="py-2.5 pr-3">{truck.plate ?? '—'}</td>
@@ -410,7 +431,7 @@ function TruckRow({
       </tr>
       {moving && (
         <tr className="border-b border-border bg-muted/40 last:border-0">
-          <td colSpan={7} className="px-2 py-2">
+          <td colSpan={8} className="px-2 py-2">
             <MoveTruck
               companyId={companyId}
               truck={truck}
@@ -464,6 +485,11 @@ function TruckEditor({
   return (
     <tr className="border-b border-border bg-muted/40 align-top">
       <td className="py-2 pr-2">{input('unit', 'Truck #', { autoFocus: !truck })}</td>
+      <td className="py-2 pr-2">
+        {input('promilesUnit', 'ProMiles unit #', {
+          placeholder: draft.unit.trim() ? `Same: ${draft.unit.trim()}` : 'Same as truck #',
+        })}
+      </td>
       <td className="py-2 pr-2">{input('vin', 'VIN', { maxLength: 17 })}</td>
       <td className="py-2 pr-2">{input('plate', 'Plate')}</td>
       <td className="space-y-1 py-2 pr-2">
@@ -504,25 +530,17 @@ function DangerZone({
 }) {
   const [into, setInto] = useState('');
   const { busy, error, run } = useAction();
+  const confirm = useConfirm();
   const target = others.find((o) => o.id === into);
 
   const merge = async () => {
-    if (!target) return;
-    const ok = window.confirm(
-      `Merge ${company.name} into ${target.name}? Its trucks, odometers and conversion history ` +
-        `move to ${target.name}, and ${company.name} is removed.`,
-    );
-    if (!ok) return;
+    if (!target || !(await confirm(mergeCompanyConfirm(company, target)))) return;
     const merged = await run(() => mergeCompany(company.id, target.id));
     if (merged) onMerged(merged);
   };
 
   const remove = async () => {
-    const ok = window.confirm(
-      `Delete ${company.name} and its ${company.trucks.length} truck(s), including their saved ` +
-        `odometers? Converted files are not touched. This can't be undone.`,
-    );
-    if (!ok) return;
+    if (!(await confirm(deleteCompanyConfirm(company)))) return;
     const done = await run(async () => {
       await deleteCompany(company.id);
       return true;

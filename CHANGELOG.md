@@ -2,6 +2,35 @@
 
 Shipped work, newest first.
 
+## 2026-11-11 — ProMiles unit # per truck; in-app confirm dialog
+- **Each truck has a ProMiles unit #** (`Unit.promilesUnit`, migration `promiles_unit`): the unit
+  # written to column A of the ProMiles CSV, when it differs from the truck # in the source
+  (Motive's `Volvo 01` → `2011`). Files still match trucks by their truck #; odometers and
+  history go by it too. docs/data-contracts.md §2 is now v2.
+  - **A new truck always waits** for its ProMiles unit # to be confirmed (`needs: promilesUnit`,
+    `SourceFile.newTrucks`, `SourceChoice.promilesUnits`), the owner's choice. In the portal the
+    field is filled in with the truck's own # (shown under the file, editable) and Convert & save
+    confirms it. In the input folder the file waits in **Waiting for you**, with the field.
+  - Every conversion saves the ProMiles unit # it used on the truck, so later files convert
+    without asking. Existing trucks are unchanged (their ProMiles unit # is their own number).
+  - **Two trucks of one company never share a ProMiles unit #:** a file that would is refused
+    with the clash named; a truck add or edit, a move and a company merge get 409.
+  - **File names show both** when they differ: `ACME-TRUCKING-LLC_unit-2011_from-Volvo-01_2026-10.csv`
+    (the owner's choice). The History tab and truck page show it under the truck #
+    (`conversions.promiles_unit`, as written), and the trip review shows it per truck.
+  - Companies tab: a **ProMiles unit #** column and field (blank = the same as the truck #); the
+    truck page shows and edits it too; both searches find it.
+- **The app asks in its own dialog instead of the browser's** (`useConfirm`,
+  `components/confirm-dialog.tsx`; texts in `lib/confirm.ts`). Deleting a truck, a company or
+  an input-folder file, merging, moving a truck, converting again and switching a company's
+  source now list **exactly what goes** (the truck with its ProMiles unit #, its saved odometer
+  and details; the company's trucks; the ProMiles file names and history entries) and **what
+  stays** (history, files already written, the original report). Deletes use a red button with
+  Cancel focused; Escape or a click outside cancels.
+- Specs: new trucks waiting and confirmed (input folder, portal), the CSV and file name, the
+  clash refusal, truck edits, move and merge guards; web tests for the confirm texts and the
+  ProMiles unit # helpers. Existing specs now save or confirm their trucks first.
+
 ## 2026-11-11 — Undo a processed input-folder file; cleaner Dashboard
 - **Delete, convert again or correct a processed file** from the Dashboard's Input folder card
   (converted, duplicate or set-aside rows):

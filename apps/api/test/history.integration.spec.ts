@@ -20,6 +20,7 @@ const describeDb = process.env.DATABASE_URL_TEST ? describe : describe.skip;
 const report = (company: string, unit: string, outputFile: string): HistoryRecord => ({
   company,
   unit,
+  promilesUnit: unit,
   origin: 'portal',
   source: 'wialon',
   sourceFile: `${unit}_IFTA_Single_Unit_Mileage_Report.csv`,

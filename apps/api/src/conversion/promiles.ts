@@ -46,7 +46,10 @@ export const PROMILES_HEADER = [
 /** One uploaded report, attributed to a truck. */
 export interface TruckReport {
   company: string;
+  /** The truck # in the source; matching, odometers and history go by it. */
   unit: string;
+  /** The unit # written to ProMiles (column A), when it isn't `unit` itself. */
+  promilesUnit?: string;
   sourceFile: string;
   report: SourceReport;
 }
@@ -59,6 +62,8 @@ export interface EndReading extends SavedReading {
 export interface CompanyOutput {
   company: string;
   units: string[];
+  /** Aligned with `units`: what ProMiles got for each. */
+  promilesUnits: string[];
   csv: string;
   trips: TripSummary[];
   /** Only trucks with a real reading; a placeholder Begin Odo is never saved. */
@@ -76,6 +81,7 @@ export interface ProMilesOutput {
 interface Truck {
   company: string;
   unit: string;
+  promilesUnit: string;
   distanceUnit: DistanceUnit;
   trips: { trip: PeriodTrip; sourceFile: string }[];
 }
@@ -120,12 +126,18 @@ function endOf(trip: PeriodTrip): Date {
 /** Groups reports into companies → trucks, in upload order. */
 function groupTrucks(reports: TruckReport[], warnings: string[]): Map<string, Truck[]> {
   const companies = new Map<string, Truck[]>();
-  for (const { company, unit, sourceFile, report } of reports) {
+  for (const { company, unit, promilesUnit, sourceFile, report } of reports) {
     const trucks = companies.get(companyKey(company)) ?? [];
     companies.set(companyKey(company), trucks);
     let truck = trucks.find((t) => t.unit === unit);
     if (!truck) {
-      truck = { company, unit, distanceUnit: report.distanceUnit, trips: [] };
+      truck = {
+        company,
+        unit,
+        promilesUnit: promilesUnit ?? unit,
+        distanceUnit: report.distanceUnit,
+        trips: [],
+      };
       trucks.push(truck);
     }
     if (truck.distanceUnit !== report.distanceUnit) {
@@ -180,7 +192,7 @@ export function writeProMiles(
     const ends: EndReading[] = [];
 
     for (const truck of trucks) {
-      const { company, unit, distanceUnit } = truck;
+      const { company, unit, promilesUnit, distanceUnit } = truck;
       const label = `${company} unit ${unit}`;
       truck.trips.sort((a, b) => startOf(a.trip).getTime() - startOf(b.trip).getTime());
 
@@ -250,7 +262,7 @@ export function writeProMiles(
         legs.forEach((leg, i) => {
           const head =
             i === 0
-              ? [unit, fmtDate(start), fmtDate(end), beginOdo, 'D', distanceUnit]
+              ? [promilesUnit, fmtDate(start), fmtDate(end), beginOdo, 'D', distanceUnit]
               : Array<string>(6).fill('');
           lines.push(csvLine([...head, leg.state, leg.distance, '0', 'n', 'n', '']));
         });
@@ -258,6 +270,7 @@ export function writeProMiles(
         summaries.push({
           company,
           unit,
+          promilesUnit,
           sourceFile,
           beginDate: fmtDate(start),
           endDate: fmtDate(end),
@@ -284,6 +297,7 @@ export function writeProMiles(
       outputs.push({
         company: trucks[0].company,
         units: trucks.filter((t) => t.trips.length > 0).map((t) => t.unit),
+        promilesUnits: trucks.filter((t) => t.trips.length > 0).map((t) => t.promilesUnit),
         csv: lines.join('\n') + '\n',
         trips: summaries,
         odometers: ends,

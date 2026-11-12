@@ -4,37 +4,6 @@
 >
 > **Last groomed:** 2026-11-11
 
-## Next — unit # mapping (source unit # → ProMiles unit #)
-
-The source's unit # is kept exactly as the provider exports it (e.g. Motive's `Volvo 01`,
-`Volvo 22`). Only the unit # **written to the ProMiles CSV** can differ, and the user sets it.
-Usually it's just a number, but not always the source's digits: `Volvo 01` → `2011`,
-`Volvo 22` → `22`. So each truck gets a second field, its **ProMiles unit #**:
-
-- **Two fields per truck:** *Source unit #* (from the file, read-only, how files are matched to
-  the truck) and *ProMiles unit #* (what the output carries). The ProMiles unit # defaults to
-  the source unit # (1:1), so nothing changes for trucks the user never touches. The portal
-  calls a truck's own number "Truck #" (since 2026-11-11); label the pair e.g. "Truck # (from
-  the source)" and "ProMiles unit #", since "unit" stays the ProMiles / Excel word.
-- **At first import:** for a truck not saved yet, the portal and input-folder forms show the
-  ProMiles unit # next to the detected source unit #, prefilled 1:1 and editable. The user
-  confirms it (or changes it) before the file converts; it's saved on the truck. For a file
-  with several trucks (Motive), one row per truck. Once saved, later files convert without
-  asking.
-- **Later:** the Companies tab's truck detail (and the truck page) shows both fields; the
-  ProMiles unit # can be edited there any time. A change applies to the next conversion; past
-  ProMiles files and history rows keep what was written.
-- **What uses which:** matching (company lookup by unit #, `ownersOfUnits`) and the truck's
-  identity use the **source** unit #; the ProMiles CSV's unit # column uses the **ProMiles**
-  unit #. Decide before building whether the output file name (`<Company>_unit-<N>_…`) and the
-  History tab show the ProMiles unit #, the source one, or both.
-- **Guard:** two trucks of one company may not share a ProMiles unit #. The edit is refused
-  (it would merge two vehicles' miles in ProMiles). The same goes for moving a truck to
-  another company (`CompaniesService.moveTruck`): refuse it when its ProMiles unit # is taken there.
-- Needs a schema change (e.g. `Unit.promilesUnit`, null = same as the source), a migration,
-  shared contract fields (`Truck`, the file's units in `SourceFile` / `InboxEntry`,
-  `SourceChoice`), and a docs/data-contracts.md note on the output's unit # column.
-
 ## Next — source importers (new providers)
 
 Every provider with a sample export is built (Wialon, Bellfam ELD, Ezlogz, HOS 247, Motive,

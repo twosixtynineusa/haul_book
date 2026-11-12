@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   companyKey,
+  promilesUnitOf,
   sourceFormat,
   truckKey,
   type ConversionPreview,
@@ -45,12 +46,18 @@ function slug(value: string, max: number): string {
     .slice(0, max);
 }
 
-/** `unit-22`, `units-22-25-30`, or `12-units` once there are too many to list. */
-function unitsLabel(units: string[]): string {
-  const ids = units.map((u) => slug(u, 20)).filter(Boolean);
-  if (ids.length === 1) return `unit-${ids[0]}`;
-  if (ids.length > 1 && ids.length <= 3) return `units-${ids.join('-')}`;
-  return `${units.length}-units`;
+/**
+ * `unit-22`, `units-22-25-30`, or `12-units` once there are too many to list: the unit #s
+ * ProMiles got. When any differs from the truck # in the source, those follow:
+ * `unit-2011_from-Volvo-01`, `units-2011-22_from-Volvo-01-Volvo-22`.
+ */
+function unitsLabel(units: string[], promilesUnits: string[] = units): string {
+  const label = (list: string[]) => list.map((u) => slug(u, 20)).filter(Boolean);
+  const ids = label(promilesUnits);
+  if (ids.length === 0 || ids.length > 3) return `${units.length}-units`;
+  const shown = `${ids.length === 1 ? 'unit' : 'units'}-${ids.join('-')}`;
+  const mapped = promilesUnits.some((p, i) => p !== units[i]);
+  return mapped ? `${shown}_from-${label(units).join('-')}` : shown;
 }
 
 /** `2026-10`, or `2026-10_to_2026-12` when the trips span several months. */
@@ -65,12 +72,17 @@ function periodLabel(trips: TripSummary[]): string {
 }
 
 /**
- * Company name + unit # + period, e.g. `ACME-TRUCKING-LLC_unit-22_2026-10`.
+ * Company name + unit # + period, e.g. `ACME-TRUCKING-LLC_unit-22_2026-10`, or
+ * `ACME-TRUCKING-LLC_unit-2011_from-Volvo-01_2026-10` for a truck ProMiles knows by another #.
  * One file per company: ProMiles imports a file under one customer.
  */
-export function outputBaseName(output: Pick<CompanyOutput, 'company' | 'units' | 'trips'>): string {
+export function outputBaseName(
+  output: Pick<CompanyOutput, 'company' | 'units' | 'trips'> &
+    Partial<Pick<CompanyOutput, 'promilesUnits'>>,
+): string {
   const company = slug(output.company, 60) || 'company';
-  return `${company}_${unitsLabel(output.units)}_${periodLabel(output.trips)}`;
+  const units = unitsLabel(output.units, output.promilesUnits);
+  return `${company}_${units}_${periodLabel(output.trips)}`;
 }
 
 /** A file ready to convert, with the source format it was read as. */
@@ -296,6 +308,8 @@ export class ConversionService implements OnModuleInit {
         units: [],
         period: null,
         suggestedPeriod: null,
+        promilesUnits: {},
+        newTrucks: [],
         needs: [],
         knownSource: null,
         error: null,
@@ -383,6 +397,8 @@ export class ConversionService implements OnModuleInit {
       s.knownSource = source;
     }
 
+    await this.toProMilesUnits(sources, reads, choices, onlyUnits);
+
     const warnings: string[] = [];
     const ready: ReadyReport[] = [];
     for (const [i, s] of sources.entries()) {
@@ -396,6 +412,7 @@ export class ConversionService implements OnModuleInit {
         ready.push({
           company: s.company!,
           unit: truck.unit,
+          promilesUnit: s.promilesUnits[truck.unit] ?? truck.unit,
           sourceFile: s.name,
           format: s.format!,
           confirmed: !!choices[i]?.confirmSource,
@@ -451,6 +468,65 @@ export class ConversionService implements OnModuleInit {
       source.period = choice.period && !report.needsPeriod ? choice.period : null;
     }
     return { report, warnings };
+  }
+
+  /**
+   * Once a file's company is known: the unit # ProMiles gets for each of its trucks. The
+   * user's entry (`promilesUnits`) wins, else the saved truck's own; a truck not saved yet
+   * waits for the user to confirm one (`needs: promilesUnit`, `newTrucks`), and so does one
+   * whose ProMiles unit # another truck of the company already has (in the saved list or
+   * this upload): two vehicles' miles must never land on one ProMiles unit.
+   */
+  private async toProMilesUnits(
+    sources: SourceFile[],
+    reads: (Read | null)[],
+    choices: SourceChoice[],
+    onlyUnits?: string[],
+  ): Promise<void> {
+    const open = sources.filter((s, i) => reads[i] && s.company && !s.error);
+    const saved = await this.companies.trucksOf(open.map((s) => s.company!));
+    /** Per company: ProMiles unit # → the truck # it belongs to, saved trucks first. */
+    const taken = new Map<string, Map<string, string>>();
+    const takenBy = (company: string) => {
+      const key = companyKey(company);
+      if (!taken.has(key)) {
+        const own = saved.get(key) ?? [];
+        taken.set(key, new Map(own.map((t) => [promilesUnitOf(t), t.unit])));
+      }
+      return taken.get(key)!;
+    };
+
+    for (const [i, s] of sources.entries()) {
+      if (!open.includes(s)) continue;
+      const units = (s.units.length > 0 ? s.units : s.unit ? [s.unit] : []).filter(
+        (u) => !onlyUnits || onlyUnits.includes(u),
+      );
+      const own = new Map((saved.get(companyKey(s.company!)) ?? []).map((t) => [t.unit, t]));
+      const entered = choices[i]?.promilesUnits ?? {};
+      const used = takenBy(s.company!);
+      const clashes: string[] = [];
+      for (const unit of units) {
+        const truck = own.get(unit);
+        const promiles = entered[unit]?.trim() || (truck ? promilesUnitOf(truck) : unit);
+        s.promilesUnits[unit] = promiles;
+        if (!entered[unit] && !truck) s.newTrucks.push(unit);
+        const holder = used.get(promiles);
+        if (holder !== undefined && holder !== unit) {
+          clashes.push(`${promiles} is already truck ${holder}'s`);
+          if (!s.newTrucks.includes(unit)) s.newTrucks.push(unit);
+        } else {
+          // This truck's old ProMiles unit # is free again.
+          for (const [p, u] of used) if (u === unit) used.delete(p);
+          used.set(promiles, unit);
+        }
+      }
+      if (s.newTrucks.length > 0) s.needs.push('promilesUnit');
+      if (clashes.length > 0) {
+        s.error =
+          `${s.company} can't send two trucks to ProMiles as one unit #: ${clashes.join(', ')}. ` +
+          `Give ${clashes.length === 1 ? 'this truck' : 'these trucks'} another ProMiles unit #.`;
+      }
+    }
   }
 
   /**
@@ -535,6 +611,7 @@ const NEED_TEXT: Record<SourceNeed, string> = {
   unit: 'enter the truck #',
   period: 'enter the dates it covers',
   source: "confirm converting it from a source other than the company's approved one",
+  promilesUnit: 'confirm the unit # ProMiles gets for each new truck',
 };
 
 /** One readable 400 message for everything blocking a conversion. */
@@ -576,6 +653,7 @@ function recordEntry(output: CompanyOutput, ready: ReadyReport[]): RecordEntry {
   return {
     company: output.company,
     units: output.units,
+    promilesUnits: Object.fromEntries(output.units.map((u, i) => [u, output.promilesUnits[i]])),
     odometers: output.odometers,
     source: (confirmed[confirmed.length - 1] ?? mine[0])?.format,
     activity: [...latest.values()],
@@ -604,7 +682,7 @@ function historyRecords(
     groups.set(key, [...(groups.get(key) ?? []), trip]);
   }
   return [...groups.values()].map((trips) => {
-    const { company, unit, sourceFile, distanceUnit } = trips[0];
+    const { company, unit, promilesUnit, sourceFile, distanceUnit } = trips[0];
     const report = ready.find(
       (r) =>
         companyKey(r.company) === companyKey(company) &&
@@ -614,6 +692,7 @@ function historyRecords(
     return {
       company,
       unit,
+      promilesUnit,
       origin,
       source: report.format,
       sourceFile,

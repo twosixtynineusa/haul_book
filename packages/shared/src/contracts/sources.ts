@@ -80,6 +80,12 @@ export const SourceChoiceSchema = z.object({
    * makes this file's format the company's approved source (it replaces the old one).
    */
   confirmSource: z.boolean().optional(),
+  /**
+   * The unit # to write to ProMiles per truck, keyed by the truck # in the file
+   * (`{ "Volvo 01": "2011" }`). Required for a truck not saved yet (`needs` has
+   * `promilesUnit`); for a saved one it replaces its saved ProMiles unit #. Saved on the truck.
+   */
+  promilesUnits: z.record(z.string(), UnitNumberSchema).optional(),
 });
 export type SourceChoice = z.infer<typeof SourceChoiceSchema>;
 export const SourceChoicesSchema = z.array(SourceChoiceSchema).max(100);
@@ -88,8 +94,17 @@ export const SourceChoicesSchema = z.array(SourceChoiceSchema).max(100);
  * `source`: the file's format isn't the (saved) company's approved source. It waits for the
  * user to confirm the switch (`confirmSource`).
  * `period`: the file has no dates (Motive's distance summary); the user gives them.
+ * `promilesUnit`: a truck in it isn't saved yet (or its ProMiles unit # clashes with another
+ * truck's): the user confirms or sets the unit # ProMiles gets (`promilesUnits`).
  */
-export const SourceNeedSchema = z.enum(['format', 'company', 'unit', 'period', 'source']);
+export const SourceNeedSchema = z.enum([
+  'format',
+  'company',
+  'unit',
+  'period',
+  'source',
+  'promilesUnit',
+]);
 export type SourceNeed = z.infer<typeof SourceNeedSchema>;
 
 /**
@@ -133,6 +148,16 @@ export const SourceFileSchema = z.object({
   period: PeriodSchema.nullable(),
   /** For such a file: a likely period (the month before it was exported), to offer the user. */
   suggestedPeriod: PeriodSchema.nullable(),
+  /**
+   * Once the company is known: the unit # each of the file's trucks gets in ProMiles, keyed by
+   * its truck # (the user's entry, else the saved truck's; a new truck shows its own number).
+   */
+  promilesUnits: z.record(z.string(), z.string()),
+  /**
+   * When `needs` has `promilesUnit`: the trucks (by truck #) whose ProMiles unit # the user has
+   * to confirm: not saved yet, or clashing with another truck of the company.
+   */
+  newTrucks: z.array(z.string()),
   /** What the user still has to supply before this file can be converted. */
   needs: z.array(SourceNeedSchema),
   /** When `needs` has `source`: the company's approved source. */
@@ -141,6 +166,11 @@ export const SourceFileSchema = z.object({
   error: z.string().nullable(),
 });
 export type SourceFile = z.infer<typeof SourceFileSchema>;
+
+/** The unit # ProMiles gets for a truck: its own ProMiles unit #, else its truck #. */
+export function promilesUnitOf(truck: { unit: string; promilesUnit?: string | null }): string {
+  return truck.promilesUnit || truck.unit;
+}
 
 /** "Wialon" from "Wialon — IFTA Single Unit Mileage Report": the provider's short name. */
 export function sourceName(id: SourceFormatId): string {

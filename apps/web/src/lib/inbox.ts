@@ -21,24 +21,3 @@ export function entryOwner(entry: Pick<InboxEntry, 'company' | 'unit' | 'units'>
         : null;
   return [entry.company, trucks].filter(Boolean).join(' · ');
 }
-
-const KEPT = 'The original report is kept.';
-
-/** The confirm before deleting a processed row: says what goes with it. */
-export function deleteEntryText(entry: Pick<InboxEntry, 'name' | 'status' | 'outputs'>): string {
-  if (entry.status !== 'converted' || entry.outputs.length === 0) {
-    return `Remove ${entry.name} from this list? ${KEPT}`;
-  }
-  const files = entry.outputs.length === 1 ? 'file' : 'files';
-  return (
-    `Delete ${entry.name}? Its ProMiles ${files} (${entry.outputs.join(', ')}) and its ` +
-    `history are deleted too. ${KEPT}`
-  );
-}
-
-/** The confirm before converting a processed file again. */
-export function reprocessEntryText(entry: Pick<InboxEntry, 'name' | 'status'>): string {
-  return entry.status === 'converted'
-    ? `Convert ${entry.name} again? Its ProMiles file and history are replaced by the new ones.`
-    : `Try ${entry.name} again?`;
-}

@@ -305,6 +305,49 @@ describeDb('Companies (Postgres integration)', () => {
       await http().post(`/api/v1/companies/${long.id}/merge`).send({ into: long.id }).expect(409);
     });
 
+    it('edits a truck’s ProMiles unit #, and refuses one another truck already sends', async () => {
+      const acme = await create({ name: 'ACME TRUCKING LLC' });
+      const truckPath = (id: string) => `/api/v1/companies/${acme.id}/trucks/${id}`;
+      const added = CompanySchema.parse(
+        (
+          await http()
+            .post(`/api/v1/companies/${acme.id}/trucks`)
+            .send({ unit: 'Volvo 01', promilesUnit: '2011' })
+            .expect(201)
+        ).body,
+      );
+      const volvo = added.trucks[0];
+      expect(volvo).toMatchObject({ unit: 'Volvo 01', promilesUnit: '2011' });
+      // Without one, it's the truck # itself.
+      const two = CompanySchema.parse(
+        (await http().post(`/api/v1/companies/${acme.id}/trucks`).send({ unit: '22' }).expect(201))
+          .body,
+      );
+      const t22 = two.trucks.find((t) => t.unit === '22')!;
+      expect(t22.promilesUnit).toBe('22');
+
+      // 22 is truck 22's in ProMiles: refused, for an edit and a new truck alike.
+      const taken = await http()
+        .patch(truckPath(volvo.id))
+        .send({ promilesUnit: '22' })
+        .expect(409);
+      expect(taken.body.message).toMatch(/trucks 22 and Volvo 01 .* same unit # 22/);
+      await http()
+        .post(`/api/v1/companies/${acme.id}/trucks`)
+        .send({ unit: 'Volvo 02', promilesUnit: '2011' })
+        .expect(409);
+
+      // Blank (or the truck # itself) means the same as the truck #.
+      const cleared = await http()
+        .patch(truckPath(volvo.id))
+        .send({ promilesUnit: '' })
+        .expect(200);
+      expect(cleared.body.trucks.find((t: { id: string }) => t.id === volvo.id)).toMatchObject({
+        promilesUnit: 'Volvo 01',
+      });
+      expect((await prisma.unit.findUnique({ where: { id: volvo.id } }))!.promilesUnit).toBeNull();
+    });
+
     describe('moving a truck to another company', () => {
       const day = (m: number, d: number) => new Date(Date.UTC(2026, m - 1, d));
       /** A history row for this truck, as a conversion would write it. */
@@ -423,6 +466,22 @@ describeDb('Companies (Postgres integration)', () => {
           .post(`/api/v1/companies/${acme.id}/trucks/${truck.id}/move`)
           .send({})
           .expect(400);
+      });
+
+      it('refuses a move or merge that would give two trucks one ProMiles unit #', async () => {
+        await companies.record([
+          { company: 'ACME', units: ['Volvo 01'], promilesUnits: { 'Volvo 01': '2011' } },
+          { company: 'XYZ', units: ['2011'] },
+        ]);
+        const [acme, xyz] = (await companies.list()).companies;
+        const res = await move(acme.id, acme.trucks[0].id, xyz.id).expect(409);
+        expect(res.body.message).toMatch(/XYZ would send trucks 2011 and Volvo 01/);
+        await http().post(`/api/v1/companies/${acme.id}/merge`).send({ into: xyz.id }).expect(409);
+        // Nothing moved.
+        expect(summary(await companies.list())).toEqual([
+          { name: 'ACME', units: ['Volvo 01'] },
+          { name: 'XYZ', units: ['2011'] },
+        ]);
       });
     });
 

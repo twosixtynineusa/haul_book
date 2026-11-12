@@ -51,6 +51,9 @@ export function ReviewTable({
               >
                 <td className="py-3 pr-4">
                   <p className="font-semibold">Truck {t.unit}</p>
+                  {t.promilesUnit !== t.unit && (
+                    <p className="text-xs font-medium">ProMiles unit # {t.promilesUnit}</p>
+                  )}
                   <p className="max-w-[12rem] truncate text-xs" title={t.company}>
                     {t.company}
                   </p>

@@ -30,7 +30,13 @@ import {
   type SourceDraft,
 } from '@/lib/sources';
 import { Combobox } from './combobox';
-import { FormatSelect, NeedsText, PeriodFields, SourceSwitch } from './sources-panel';
+import {
+  FormatSelect,
+  NeedsText,
+  PeriodFields,
+  ProMilesUnitFields,
+  SourceSwitch,
+} from './sources-panel';
 import { Alert, Badge, Button, Card, cx, type Tone } from './ui';
 
 /** How often the portal re-reads the inbox (the worker scans on its own schedule). */
@@ -131,11 +137,16 @@ export function entryValues(entry: InboxEntry, draft: SourceDraft) {
   const format: SourceFormatId | '' = draft.format ?? entry.format ?? '';
   const period = draft.period ?? entry.period ?? { begin: '', end: '' };
   const needsPeriod = entry.needs.includes('period') || !!entry.period;
+  // New trucks: their ProMiles unit #, offered as their own truck #.
+  const promilesUnits = Object.fromEntries(
+    entry.newTrucks.map((t) => [t, draft.promilesUnits?.[t] ?? entry.promilesUnits[t] ?? t]),
+  );
   const complete =
     !!company.trim() &&
     !!unit.trim() &&
     !!format &&
-    (!needsPeriod || (!!period.begin && !!period.end));
+    (!needsPeriod || (!!period.begin && !!period.end)) &&
+    Object.values(promilesUnits).every((v) => !!v.trim());
   /** What to send: only what's set, a file's own truck #s left to the file. */
   const choice = (confirmSource?: boolean) =>
     toChoices([
@@ -145,9 +156,20 @@ export function entryValues(entry: InboxEntry, draft: SourceDraft) {
         unit: manyUnits ? '' : unit,
         period: needsPeriod ? period : undefined,
         confirmSource,
+        promilesUnits,
       },
     ])[0];
-  return { company, manyUnits, unit, format, period, needsPeriod, complete, choice };
+  return {
+    company,
+    manyUnits,
+    unit,
+    format,
+    period,
+    needsPeriod,
+    promilesUnits,
+    complete,
+    choice,
+  };
 }
 
 /** Source format, company, truck # (and the period, for a file with no dates) of one file. */
@@ -165,7 +187,10 @@ export function EntryFields({
   narrow?: boolean;
   onChange: (patch: SourceDraft) => void;
 }) {
-  const { company, manyUnits, unit, format, period, needsPeriod } = entryValues(entry, draft);
+  const { company, manyUnits, unit, format, period, needsPeriod, promilesUnits } = entryValues(
+    entry,
+    draft,
+  );
   const needs = new Set(entry.needs);
   return (
     <>
@@ -215,6 +240,14 @@ export function EntryFields({
           />
         </label>
       </div>
+      <ProMilesUnitFields
+        trucks={entry.newTrucks}
+        values={promilesUnits}
+        missing={needs.has('promilesUnit')}
+        onChange={(truck, value) =>
+          onChange({ promilesUnits: { ...draft.promilesUnits, [truck]: value } })
+        }
+      />
       {needsPeriod && (
         <PeriodFields
           value={period}

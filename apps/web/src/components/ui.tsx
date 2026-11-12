@@ -91,12 +91,13 @@ export function IconTile({ tone = 'muted', children }: { tone?: Tone; children: 
   );
 }
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
   secondary: 'border border-input bg-card hover:bg-muted',
   ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
+  danger: 'bg-danger text-card hover:bg-danger/90',
 };
 
 export function buttonClass(variant: ButtonVariant = 'primary', className?: string): string {

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { ArrowRightLeft, Loader2 } from 'lucide-react';
 import type { Company, Truck, TruckMoved } from '@haulbook/shared';
 import { moveTruck } from '@/lib/api';
-import { moveConfirmText } from '@/lib/companies';
+import { moveTruckConfirm } from '@/lib/confirm';
+import { useConfirm } from './confirm-dialog';
 import { fieldClass } from './sources-panel';
 import { Button, cx } from './ui';
 
@@ -31,9 +32,10 @@ export function MoveTruck({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const target = others.find((o) => o.id === into);
+  const confirm = useConfirm();
 
   const move = async () => {
-    if (!target || !window.confirm(moveConfirmText(truck.unit, target))) return;
+    if (!target || !(await confirm(moveTruckConfirm(truck, target)))) return;
     setBusy(true);
     setError(null);
     try {

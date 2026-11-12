@@ -39,6 +39,8 @@ export const HistoryEntrySchema = z.object({
   company: z.string(),
   companyId: z.string().nullable(),
   unit: z.string(),
+  /** The unit # ProMiles got (the same as `unit` unless the truck has its own). */
+  promilesUnit: z.string(),
   truckId: z.string().nullable(),
   source: SourceFormatIdSchema.nullable(),
   sourceFile: z.string(),

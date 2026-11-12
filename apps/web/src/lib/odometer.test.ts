@@ -5,6 +5,7 @@ import { tripOdometers } from './odometer';
 const trip = (company: string, unit: string, totalDistance: number): TripSummary => ({
   company,
   unit,
+  promilesUnit: unit,
   sourceFile: `${unit}_IFTA_Single_Unit_Mileage_Report.csv`,
   beginDate: '10/1/2026',
   endDate: '10/31/2026',

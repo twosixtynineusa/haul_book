@@ -27,12 +27,21 @@ export function changedDetails(c: Company, draft: DetailsDraft): CompanyUpdate {
   return update;
 }
 
-export const TRUCK_FIELDS = ['unit', 'vin', 'plate', 'odometer', 'odometerAsOf', 'notes'] as const;
+export const TRUCK_FIELDS = [
+  'unit',
+  'promilesUnit',
+  'vin',
+  'plate',
+  'odometer',
+  'odometerAsOf',
+  'notes',
+] as const;
 export type TruckField = (typeof TRUCK_FIELDS)[number];
 export type TruckDraft = Record<TruckField, string>;
 
 export const EMPTY_TRUCK: TruckDraft = {
   unit: '',
+  promilesUnit: '',
   vin: '',
   plate: '',
   odometer: '',
@@ -41,7 +50,9 @@ export const EMPTY_TRUCK: TruckDraft = {
 };
 
 export function truckDraft(t: Truck): TruckDraft {
-  return Object.fromEntries(TRUCK_FIELDS.map((f) => [f, t[f] ?? ''])) as TruckDraft;
+  const draft = Object.fromEntries(TRUCK_FIELDS.map((f) => [f, t[f] ?? ''])) as TruckDraft;
+  // Blank = the same as the truck #: only a ProMiles unit # of its own shows.
+  return { ...draft, promilesUnit: t.promilesUnit === t.unit ? '' : t.promilesUnit };
 }
 
 /**
@@ -51,7 +62,7 @@ export function truckDraft(t: Truck): TruckDraft {
 export function truckChanges(draft: TruckDraft, base?: Truck): TruckUpdate {
   const before = base ? truckDraft(base) : EMPTY_TRUCK;
   const out: Record<string, string | null> = {};
-  for (const f of ['unit', 'vin', 'plate', 'notes'] as const) {
+  for (const f of ['unit', 'promilesUnit', 'vin', 'plate', 'notes'] as const) {
     const value = draft[f].trim();
     if (!base || value !== before[f]) out[f] = f === 'unit' ? value : value || null;
   }
@@ -66,19 +77,7 @@ export function truckChanges(draft: TruckDraft, base?: Truck): TruckUpdate {
   return out;
 }
 
-/**
- * The confirm before moving truck `unit` to `target`: says when `target` already has that
- * truck #, since the two then become one.
- */
-export function moveConfirmText(unit: string, target: Company): string {
-  const ends = 'ProMiles files already written are not changed.';
-  return target.trucks.some((t) => t.unit === unit)
-    ? `${target.name} already has truck ${unit}. Move it there and make the two one truck? ` +
-        `The later odometer is kept, blank details are filled in, and both histories are kept. ${ends}`
-    : `Move truck ${unit} to ${target.name}, with its odometer, details and history? ${ends}`;
-}
-
-/** Search by company name, USDOT #, or any truck's unit #, VIN or plate. */
+/** Search by company name, USDOT #, or any truck's truck #, ProMiles unit #, VIN or plate. */
 export function filterCompanies(companies: Company[], query: string): Company[] {
   const q = query.trim().toLowerCase();
   if (!q) return companies;
@@ -87,7 +86,7 @@ export function filterCompanies(companies: Company[], query: string): Company[] 
     (c) =>
       has(c.name) ||
       has(c.dotNumber) ||
-      c.trucks.some((t) => has(t.unit) || has(t.vin) || has(t.plate)),
+      c.trucks.some((t) => has(t.unit) || has(t.promilesUnit) || has(t.vin) || has(t.plate)),
   );
 }
 

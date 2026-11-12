@@ -18,7 +18,7 @@ import {
 } from '@/lib/api';
 import { mergeFiles } from '@/lib/files';
 import { plural } from '@/lib/format';
-import { fileKey, toChoices, type SourceDraft } from '@/lib/sources';
+import { fileKey, toChoices, withOfferedProMilesUnits, type SourceDraft } from '@/lib/sources';
 import { Dropzone } from './dropzone';
 import { InboxPending, useInbox } from './inbox-panel';
 import { InboxRecent } from './inbox-recent';
@@ -111,6 +111,8 @@ export function Portal() {
         .then((p) => {
           if (cancelled) return;
           setPreview(p);
+          // A new truck's ProMiles unit # is offered as its own truck #, in a field to check.
+          setDrafts((prev) => withOfferedProMilesUnits(prev, files, p.files));
           setPreviewError(null);
         })
         .catch((e) => !cancelled && setPreviewError(errorText(e)))
@@ -139,15 +141,21 @@ export function Portal() {
   };
 
   // A confirmed source switch is for that company + format: changing either asks again.
+  // ProMiles unit #s are per company's trucks: another company asks for them again.
   const updateDraft = (key: string, patch: SourceDraft) =>
     setDrafts((prev) => {
-      const reset = 'company' in patch || 'format' in patch ? { confirmSource: undefined } : {};
+      const reset = {
+        ...('company' in patch || 'format' in patch ? { confirmSource: undefined } : {}),
+        ...('company' in patch || 'unit' in patch ? { promilesUnits: undefined } : {}),
+      };
       return { ...prev, [key]: { ...prev[key], ...reset, ...patch } };
     });
 
   const companyForAll = (company: string) =>
     setDrafts((prev) =>
-      Object.fromEntries(files.map((f) => [fileKey(f), { ...prev[fileKey(f)], company }])),
+      Object.fromEntries(
+        files.map((f) => [fileKey(f), { ...prev[fileKey(f)], company, promilesUnits: undefined }]),
+      ),
     );
 
   const convert = async () => {

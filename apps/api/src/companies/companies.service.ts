@@ -3,6 +3,7 @@ import type { Company as CompanyRow, Prisma, Unit as UnitRow } from '@prisma/cli
 import {
   SourceFormatIdSchema,
   companyKey,
+  promilesUnitOf,
   truckKey,
   type Company,
   type CompanyInputSchema,
@@ -22,6 +23,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface RecordEntry {
   company: string;
   units: string[];
+  /** Truck # → the unit # ProMiles got: saved on each truck (null when it's the truck #). */
+  promilesUnits?: Record<string, string>;
   odometers?: (SavedReading & { unit: string })[];
   /**
    * The source format its files were converted from: it becomes the company's approved
@@ -57,6 +60,7 @@ export function toTruck(u: UnitRow): Truck {
   return {
     id: u.id,
     unit: u.number,
+    promilesUnit: u.promilesUnit ?? u.number,
     vin: u.vin,
     plate: u.plate,
     notes: u.notes,
@@ -98,6 +102,7 @@ async function foldTruck(tx: Prisma.TransactionClient, from: UnitRow, into: Unit
   await tx.unit.update({
     where: { id: into.id },
     data: {
+      promilesUnit: into.promilesUnit ?? from.promilesUnit,
       vin: into.vin ?? from.vin,
       plate: into.plate ?? from.plate,
       notes: into.notes ?? from.notes,
@@ -112,15 +117,57 @@ async function foldTruck(tx: Prisma.TransactionClient, from: UnitRow, into: Unit
   });
 }
 
-/** A truck input → Unit data. The schema makes sure odometer + as-of come together. */
-function truckData({ unit, odometer, odometerAsOf, ...details }: TruckInput | TruckUpdate) {
+/**
+ * A truck input → Unit data. The schema makes sure odometer + as-of come together. A ProMiles
+ * unit # equal to the truck # is stored as null (the same), so renaming the truck carries it.
+ */
+function truckData(
+  { unit, promilesUnit, odometer, odometerAsOf, ...details }: TruckInput | TruckUpdate,
+  number: string,
+) {
   return {
     ...details,
     ...(unit !== undefined ? { number: unit.trim() } : {}),
+    ...(promilesUnit !== undefined
+      ? { promilesUnit: promilesUnit && promilesUnit !== number ? promilesUnit : null }
+      : {}),
     ...(odometer !== undefined
       ? { odometer, odometerAsOf: odometerAsOf ? dateOf(odometerAsOf) : null }
       : {}),
   };
+}
+
+/** A truck as the ProMiles unit # guard sees it. */
+interface Mapped {
+  id: string;
+  number: string;
+  promilesUnit: string | null;
+}
+
+/**
+ * Two trucks of one company sending the same unit # to ProMiles would merge two vehicles'
+ * miles there: the first such pair among `trucks` (one company's, as they'll be saved).
+ */
+function promilesClash(trucks: Mapped[]): [Mapped, Mapped] | null {
+  const seen = new Map<string, Mapped>();
+  for (const t of trucks) {
+    const unit = promilesUnitOf({ unit: t.number, promilesUnit: t.promilesUnit });
+    const other = seen.get(unit);
+    if (other) return [other, t];
+    seen.set(unit, t);
+  }
+  return null;
+}
+
+function assertNoClash(company: string, trucks: Mapped[]): void {
+  const clash = promilesClash(trucks);
+  if (!clash) return;
+  const [a, b] = clash;
+  const unit = promilesUnitOf({ unit: b.number, promilesUnit: b.promilesUnit });
+  throw new ConflictException(
+    `${company} would send trucks ${a.number} and ${b.number} to ProMiles as the same ` +
+      `unit # ${unit}. Give one of them another ProMiles unit # first.`,
+  );
 }
 
 /**
@@ -184,6 +231,13 @@ export class CompaniesService {
   async merge(id: string, into: string): Promise<Company> {
     if (id === into) throw new ConflictException('Pick a different company to merge into');
     const [from, to] = [await this.find(id), await this.find(into)];
+    assertNoClash(to.name, [
+      ...to.units.map((t) => {
+        const twin = from.units.find((u) => u.number === t.number);
+        return { ...t, promilesUnit: t.promilesUnit ?? twin?.promilesUnit ?? null };
+      }),
+      ...from.units.filter((u) => !to.units.some((t) => t.number === u.number)),
+    ]);
     await this.prisma.$transaction(async (tx) => {
       for (const u of from.units) {
         const twin = to.units.find((t) => t.number === u.number);
@@ -211,17 +265,25 @@ export class CompaniesService {
   async addTruck(id: string, input: TruckInput): Promise<Company> {
     const company = await this.find(id);
     this.assertUnitFree(company, input.unit);
-    await this.prisma.unit.create({
-      data: { companyId: id, number: input.unit.trim(), ...truckData(input) },
-    });
+    const data = truckData(input, input.unit.trim());
+    assertNoClash(company.name, [
+      ...company.units,
+      { id: '', number: input.unit.trim(), promilesUnit: data.promilesUnit ?? null },
+    ]);
+    await this.prisma.unit.create({ data: { companyId: id, number: input.unit.trim(), ...data } });
     return this.get(id);
   }
 
   async updateTruck(id: string, truckId: string, input: TruckUpdate): Promise<Company> {
     const company = await this.find(id);
-    this.findTruck(company, truckId);
+    const truck = this.findTruck(company, truckId);
     if (input.unit !== undefined) this.assertUnitFree(company, input.unit, truckId);
-    await this.prisma.unit.update({ where: { id: truckId }, data: truckData(input) });
+    const data = truckData(input, input.unit?.trim() ?? truck.number);
+    assertNoClash(company.name, [
+      ...company.units.filter((u) => u.id !== truckId),
+      { ...truck, ...data },
+    ]);
+    await this.prisma.unit.update({ where: { id: truckId }, data });
     return this.get(id);
   }
 
@@ -231,12 +293,12 @@ export class CompaniesService {
     return this.get(id);
   }
 
-  /** The saved spelling of a company that matches `name` case/spacing-insensitively. */
   /**
    * Moves a truck to company `into` with everything it owns: its details, saved odometer,
    * activity and conversion history (the names as written stay). When `into` already has
    * that truck #, the two become one, as in a company merge. `into` takes the truck's last
    * source as its approved one when it has none; the company it leaves keeps its own.
+   * Refused when another truck of `into` already has its ProMiles unit #.
    */
   async moveTruck(id: string, truckId: string, into: string): Promise<TruckMoved> {
     if (id === into) throw new ConflictException('Pick a different company to move it to');
@@ -244,6 +306,10 @@ export class CompaniesService {
     const truck = this.findTruck(from, truckId);
     const twin = to.units.find((t) => t.number === truck.number);
     const kept = twin ?? truck;
+    assertNoClash(to.name, [
+      ...to.units.filter((t) => t !== twin),
+      { ...kept, promilesUnit: twin?.promilesUnit ?? truck.promilesUnit },
+    ]);
     await this.prisma.$transaction(async (tx) => {
       if (twin) await foldTruck(tx, truck, twin);
       else await tx.unit.update({ where: { id: truck.id }, data: { companyId: to.id } });
@@ -260,6 +326,28 @@ export class CompaniesService {
     };
   }
 
+  /**
+   * The saved trucks of the companies among `names` (keyed companyKey), with the unit #
+   * ProMiles gets for each: conversion maps a file's trucks with them.
+   */
+  async trucksOf(
+    names: string[],
+  ): Promise<Map<string, { unit: string; promilesUnit: string | null }[]>> {
+    const keys = [...new Set(names.map(companyKey))];
+    if (keys.length === 0) return new Map();
+    const rows = await this.prisma.company.findMany({
+      where: { nameKey: { in: keys } },
+      include: { units: true },
+    });
+    return new Map(
+      rows.map((c) => [
+        c.nameKey,
+        c.units.map((u) => ({ unit: u.number, promilesUnit: u.promilesUnit })),
+      ]),
+    );
+  }
+
+  /** The saved spelling of a company that matches `name` case/spacing-insensitively. */
   async canonicalNames(names: string[]): Promise<Map<string, string>> {
     const keys = [...new Set(names.map(companyKey))];
     if (keys.length === 0) return new Map();
@@ -336,7 +424,14 @@ export class CompaniesService {
    */
   async record(entries: RecordEntry[]): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      for (const { company, units, odometers = [], source, activity = [] } of entries) {
+      for (const {
+        company,
+        units,
+        promilesUnits = {},
+        odometers = [],
+        source,
+        activity = [],
+      } of entries) {
         const saved = await tx.company.upsert({
           where: { nameKey: companyKey(company) },
           create: { name: cleanName(company), nameKey: companyKey(company), source },
@@ -346,10 +441,12 @@ export class CompaniesService {
           await tx.company.update({ where: { id: saved.id }, data: { source } });
         }
         for (const number of new Set(units.map((u) => u.trim()))) {
+          const promiles = promilesUnits[number]?.trim();
+          const own = promiles && promiles !== number ? promiles : null;
           await tx.unit.upsert({
             where: { companyId_number: { companyId: saved.id, number } },
-            create: { companyId: saved.id, number },
-            update: {},
+            create: { companyId: saved.id, number, promilesUnit: own },
+            update: promiles ? { promilesUnit: own } : {},
           });
         }
         for (const { unit, reading, asOf } of odometers) {

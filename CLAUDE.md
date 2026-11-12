@@ -29,7 +29,8 @@ apps/api/          NestJS:
   src/main.ts · src/worker.ts two processes, one image: HTTP api (app.module) + worker (worker.module)
   prisma/                     schema.prisma + migrations (make migrate NAME=…)
 apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/components/portal.tsx;
-                   input folder cards inbox-panel.tsx + inbox-recent.tsx, output-files.tsx),
+                   input folder cards inbox-panel.tsx + inbox-recent.tsx, output-files.tsx;
+                   the confirm dialog confirm-dialog.tsx),
                    Companies tab (companies-page.tsx, company-detail.tsx, move-truck.tsx), History tab (history-page.tsx)
                    and truck pages (truck-page.tsx); company/unit pickers are combobox.tsx
 ```
@@ -63,6 +64,9 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
   several (never the ones still converted).
 - **UI wording:** the portal says **truck** / "Truck #" for a saved truck's number. "Unit" stays
   in the ProMiles CSV, output file names (`_unit-22_`), the API, the database and the docs.
+- **Confirms:** never `window.confirm`. Ask with `useConfirm()` (components/confirm-dialog.tsx),
+  options from `lib/confirm.ts`, which list item by item what an action deletes or changes and
+  what stays (the owner's request, 2026-11-11).
 - **Dashboard:** folder paths and `archive/…` paths are not printed on the page (the owner found
   them confusing, 2026-11-11). Each folder card has a folder button whose tooltip shows the path
   and whose click copies it. Files waiting for input show in a "Waiting for you" card on top,
@@ -127,6 +131,15 @@ apps/web/          Next.js 15, proxying /api/v1/* to the api: Dashboard (src/com
 - **Shared layouts:** when several sources export the same layout, `detectFormats` returns them
   all and the file gets `formatOptions`. The company's approved source settles it when it's exactly
   one of them; otherwise it `needs: format`. Never silently pick the first match.
+- **ProMiles unit # (unit # mapping):** a truck's `number` is its truck # in the source; files
+  match trucks by it, and odometers and history go by it. Column A of the CSV is its ProMiles
+  unit # (`Unit.promilesUnit`, null = the same). A truck not saved yet always waits
+  (`needs: promilesUnit`, `newTrucks`) until `SourceChoice.promilesUnits` confirms one, in the
+  portal (which offers its own # in the field) and the input folder alike (the owner's choice,
+  2026-11-11). Every conversion saves the ProMiles unit # it used on the truck. Two trucks of
+  one company never share one: conversion (`toProMilesUnits`), truck add/edit, move and merge
+  all refuse it. File names show both when they differ (`unit-2011_from-Volvo-01`); history
+  keeps both as written (`conversions.promiles_unit`).
 - Companies match case/spacing-insensitively (`companyKey`); odometers are keyed per truck
   (`truckKey(company, unit)`) because unit #s repeat across companies.
 - **Excel sources** (Swift ELD, Vista ELD): read with `conversion/xls.ts` (legacy .xls only, values

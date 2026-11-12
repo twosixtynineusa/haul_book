@@ -255,6 +255,11 @@ path; your user folder is shared by default.
    the saved ones (the arrow shows them all, typing narrows them), and you can type a new one.
    New companies and units are saved when you convert. "Use for all files" fills in one company
    for every file.
+   - **ProMiles unit #.** A truck seen for the first time also gets a field for the unit #
+     ProMiles knows it by, filled in with its own truck # (Motive's `Volvo 01` might be `2011`
+     in ProMiles). Change it if needed; converting saves it on the truck, and its later files
+     use it without asking. In the input folder, a file with a new truck always waits in
+     **Waiting for you** until you confirm it. Two trucks of one company can't share one.
 3. **Review trips.** There is one trip per truck per month, with its period, states and miles. You
    get a warning if the state miles don't add up to the report's own total.
    - **Begin odometer** is optional. If you enter a truck's reading once, later months carry it
@@ -270,8 +275,9 @@ path; your user folder is shared by default.
 
 Output files are named `<Company>_unit-<N>_<YYYY-MM>.csv`, for example
 `ACME-TRUCKING-LLC_unit-22_2026-10.csv`. Several trucks or months look like
-`…_units-22-25_2026-10_to_2026-12.csv`. Files are never overwritten; a repeat gets `_2`, `_3` and
-so on. A ProMiles file is only ever deleted when you delete or convert again the input-folder
+`…_units-22-25_2026-10_to_2026-12.csv`. The unit #s are the ProMiles ones; when a truck's differs
+from its truck # in the source, both show: `ACME-TRUCKING-LLC_unit-2011_from-Volvo-01_2026-10.csv`.
+Files are never overwritten; a repeat gets `_2`, `_3` and so on. A ProMiles file is only ever deleted when you delete or convert again the input-folder
 file it came from (see below).
 
 ### Input folder (automatic conversion)
@@ -318,14 +324,19 @@ at the same odometer as the first time. In every case the original report stays 
 The **Companies** tab lists every saved company with its trucks. When a file is converted, its
 company and unit # are added automatically, whether they were read from the file or picked by you.
 
-- **Search** by company name, USDOT #, unit #, VIN or plate.
+- **Search** by company name, USDOT #, truck #, ProMiles unit #, VIN or plate.
+- **Every delete, merge or move asks first** in the app's own dialog, listing exactly what goes
+  (the truck, its saved odometer, the ProMiles file, the history entry, …) and what stays.
 - **Company details:** name, USDOT #, IFTA account #, contact, phone, email and notes.
   - Renaming changes the spelling conversions match from then on.
   - **Merge** folds two spellings of one carrier into one. The trucks move across; where both
     have the same unit #, the later odometer is kept.
   - **Delete** removes the company and its trucks. Converted files are never touched.
-- **Trucks:** unit #, VIN, plate and notes, plus the saved odometer, which you can correct. Each
-  truck also shows when it was last converted, from which source, and through which date.
+- **Trucks:** truck #, ProMiles unit # (blank = the same as the truck #), VIN, plate and notes,
+  plus the saved odometer, which you can correct. Each truck also shows when it was last
+  converted, from which source, and through which date. A changed ProMiles unit # applies from
+  the next conversion; files already written keep what they had (**Convert again** in the input
+  folder rewrites one).
   - **Move** (the arrows button, or "Move" on the truck's page) takes a truck to another saved
     company with its odometer, details and history. If that company already has the same
     truck #, the two become one truck (the later odometer is kept). A company with no approved

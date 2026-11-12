@@ -5,8 +5,10 @@ import { Download, FolderInput, Loader2, Pencil, RefreshCw, RotateCcw, Trash2 } 
 import type { Company, InboxEntry } from '@haulbook/shared';
 import { deleteInbox, downloadUrl, reprocessInbox } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { STATUS_LABEL, deleteEntryText, entryOwner, reprocessEntryText } from '@/lib/inbox';
+import { deleteEntryConfirm, reprocessEntryConfirm } from '@/lib/confirm';
+import { STATUS_LABEL, entryOwner } from '@/lib/inbox';
 import type { SourceDraft } from '@/lib/sources';
+import { useConfirm } from './confirm-dialog';
 import { FolderPathButton } from './folder-path';
 import { EntryFields, STATUS_TONE, StatusIcon, entryValues, type InboxState } from './inbox-panel';
 import { Alert, Badge, Button, Card, IconTile, buttonClass, cx, iconButtonClass } from './ui';
@@ -30,6 +32,7 @@ function RecentRow({
   const [busy, setBusy] = useState<'again' | 'delete' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { complete, choice } = entryValues(entry, draft);
+  const confirm = useConfirm();
   // Converting again needs the source it was converted from.
   const canRedo = !!entry.archivedPath;
 
@@ -47,13 +50,13 @@ function RecentRow({
       setBusy(null);
     }
   };
-  const again = () => {
-    if (window.confirm(reprocessEntryText(entry))) {
+  const again = async () => {
+    if (await confirm(reprocessEntryConfirm(entry))) {
       void run('again', () => reprocessInbox(entry.id));
     }
   };
-  const remove = () => {
-    if (window.confirm(deleteEntryText(entry))) void run('delete', () => deleteInbox(entry.id));
+  const remove = async () => {
+    if (await confirm(deleteEntryConfirm(entry))) void run('delete', () => deleteInbox(entry.id));
   };
 
   const details = [entryOwner(entry), entry.processedAt && formatDateTime(entry.processedAt)]
@@ -108,7 +111,7 @@ function RecentRow({
                     type="button"
                     className={iconButtonClass()}
                     disabled={!!busy}
-                    onClick={again}
+                    onClick={() => void again()}
                     aria-label={`Convert ${entry.name} again`}
                     title="Convert again"
                   >
@@ -124,7 +127,7 @@ function RecentRow({
                 type="button"
                 className={iconButtonClass('hover:text-danger')}
                 disabled={!!busy}
-                onClick={remove}
+                onClick={() => void remove()}
                 aria-label={`Delete ${entry.name}`}
                 title={entry.status === 'converted' ? 'Delete, with its ProMiles file' : 'Remove'}
               >
